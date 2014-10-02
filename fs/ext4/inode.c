@@ -4658,6 +4658,7 @@ static void ext4_wait_for_tail_page_commit(struct inode *inode)
  */
 int ext4_setattr(struct dentry *dentry, struct iattr *attr)
 {
+    loff_t oldsize;
 	struct inode *inode = dentry->d_inode;
 	int error, rc = 0;
 	int orphan = 0;
@@ -4739,7 +4740,10 @@ int ext4_setattr(struct dentry *dentry, struct iattr *attr)
 			}
 		}
 
+        oldsize = inode->i_size;
 		i_size_write(inode, attr->ia_size);
+		pagecache_isize_extended(inode, oldsize, inode->i_size);
+		
 		/*
 		 * Blocks are going to be removed from the inode. Wait
 		 * for dio in flight.  Temporarily disable
