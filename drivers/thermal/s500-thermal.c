@@ -434,7 +434,7 @@ static int code_to_temp(struct owl_tmu_data *data, u32 temp_code)
 	tmp1 = tmp1/tmp2;
 	tmp1 = tmp1 - 275 + offset;
 	//printk(KERN_DEBUG "temp:%d\n", tmp1);
-	printk(KERN_INFO "temp:%d\n", tmp1);
+	//printk(KERN_INFO "temp:%d\n", tmp1);
 	return tmp1;
 }
 
