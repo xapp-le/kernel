@@ -15,11 +15,11 @@
 #include <mach/hardware.h>
 
     .macro  addruart, rp, rv, tmp
-    ldr     \rp, =UART0_CTL                     @ physical base address
+    ldr     \rp, =UART2_CTL                     @ physical base address
     mrc     p15, 0, \rv, c1, c0
     tst     \rv, #1                             @ MMU enabled?
     beq     100f
-    ldr     \rp, =IO_ADDRESS(UART0_CTL)         @ virtual address
+    ldr     \rp, =IO_ADDRESS(UART2_CTL)         @ virtual address
 
 100:
     ldr     \rv, [\rp]
@@ -38,19 +38,19 @@
     .endm
 
     .macro  senduart,rd,rx
-    str     \rd, [\rx, #(UART0_TXDAT - UART0_BASE)] @ Write to Transmitter Holding Register
+    str     \rd, [\rx, #(UART2_TXDAT - UART2_BASE)] @ Write to Transmitter Holding Register
     .endm
 
     .macro  busyuart, rd, rx
 1001:   
-    ldr     \rd, [\rx, #(UART0_STAT - UART0_BASE)]  @ Read Status Register
+    ldr     \rd, [\rx, #(UART2_STAT - UART2_BASE)]  @ Read Status Register
     tst     \rd, #0x40                          @ TXFIFO Full?
     bne     1001b
     .endm
 
     .macro  waituart,rd,rx
 1001:   
-    ldr     \rd, [\rx, #(UART0_STAT - UART0_BASE)]  @ Read Status Register
+    ldr     \rd, [\rx, #(UART2_STAT - UART2_BASE)]  @ Read Status Register
     tst     \rd, #0x400                         @ TXFIFO Empty?
     beq     1001b
     .endm
