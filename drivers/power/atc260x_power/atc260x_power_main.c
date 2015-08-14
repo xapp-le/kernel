@@ -1052,6 +1052,7 @@ static void update_battery_state(struct atc260x_charger *charger)
 		charger->bat_mv = data;
 	}else{
 		/*pr_info("we do not get bat_mv from gauge\n");*/
+		pr_warn_once("we do not get bat_mv from gauge\n");
 		charger->bat_mv = charger->read_adc(charger->atc260x, "BATV");
 	}
 

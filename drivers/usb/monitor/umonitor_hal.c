@@ -66,13 +66,13 @@ static int usb_monitor_vbus_power(usb_hal_monitor_t * pdev, int is_on)
 {
  	 MONITOR_PRINTK("usb_monitor_vbus_power %04x\n", is_on);
 	if(is_on){
-		//atc260x_enable_vbusotg(is_on);
+		atc260x_enable_vbusotg(is_on);
         	if(pdev->config->power_switch_gpio_no !=0xffff)
 			gpio_set_value_cansleep(pdev->config->power_switch_gpio_no, pdev->config->power_switch_active_level);
 	}else{
 		if(pdev->config->power_switch_gpio_no !=0xffff)
 			gpio_set_value_cansleep(pdev->config->power_switch_gpio_no, !pdev->config->power_switch_active_level);
-//		atc260x_enable_vbusotg(is_on);
+		atc260x_enable_vbusotg(is_on);
 	}	
 	
 	return 0;
