@@ -934,7 +934,7 @@
 
 		phy_addr = <3>;
 		address-bits = <48>;
-		//random-mac-address = "okay";		/*okay:     disable:*/
+		random-mac-address = "disabled";		/*okay:     disable:*/
 		//local-mac-address = [ 00 18 fe 66 66 66 ]; /* if random address is enable,the local address will be unuseful*/
 		max-frame-size = <1518>;
 
