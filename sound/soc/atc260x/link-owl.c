@@ -33,6 +33,7 @@ extern int atc2603c_audio_get_pmu_status(void);
 
 const char *earphone_ctrl_link_name = "earphone_detect_gpios";
 const char *speaker_ctrl_link_name = "speaker_en_gpios";
+const char *i2s_switch_gpio_name = "i2s_switch_gpio";
 const char *audio_atc2603a_link_node = "actions,atc2603a-audio";
 const char *audio_atc2603c_link_node = "actions,atc2603c-audio";
 
@@ -41,6 +42,11 @@ enum of_gpio_flags earphone_gpio_level;
 static int speaker_gpio_num;
 static enum of_gpio_flags speaker_gpio_level;
 static int speaker_gpio_active;
+
+static int i2s_switch_gpio_num = -1;
+static enum of_gpio_flags i2s_switch_gpio_level;
+static int i2s_switch_gpio_active;
+
 static int flag = 0;
 static bool speaker_exist=true;
 
@@ -466,6 +472,16 @@ static int __init atm7059_link_init(void)
 	speaker_gpio_num =
 		atm7059_audio_gpio_init(dn, speaker_ctrl_link_name, &speaker_gpio_level);
     speaker_gpio_active = (speaker_gpio_level & OF_GPIO_ACTIVE_LOW); 		
+
+	i2s_switch_gpio_num =
+		atm7059_audio_gpio_init(dn, i2s_switch_gpio_name, &i2s_switch_gpio_level);
+	if (i2s_switch_gpio_num > 0) {
+		pr_debug("set i2s_switch gpio: num: %d\n", i2s_switch_gpio_num);
+		i2s_switch_gpio_active = (i2s_switch_gpio_level & OF_GPIO_ACTIVE_LOW);
+		gpio_direction_output(i2s_switch_gpio_num, i2s_switch_gpio_active);
+	}
+
+
 /*	
 	if (speaker_gpio_num < 0)
 		goto request_speaker_gpio_num_failed;

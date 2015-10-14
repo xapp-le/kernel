@@ -543,6 +543,7 @@
                                 pinctrl-0 = <&i2s0_state_default>;				
 				earphone_detect_gpios = <&gpio 35 0>;/*GPIOB4 0: high,1: low hr280ac GPIOA21 0*/
 				speaker_en_gpios = <&gpio 126 0>; /*hr280ac GPIOD(30) 0: high, 1: low*/
+				i2s_switch_gpio = <&gpio 33 0>; /* GPIOB1 1: high, route to 40Pin port, 0: low, route to audiojack */
 				earphone_output_mode = <0>; /*0: direct mode, 1: undirect mode*/
 				mic_num = <1>; /*just suport 1, 2*/
 				mic0_gain = < 0x7 0x7 >; /*<Lchannel,Rchannel> [0x0~0xF]*/
