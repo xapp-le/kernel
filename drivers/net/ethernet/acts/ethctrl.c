@@ -1840,7 +1840,7 @@ static void subisr_enet_rx(ec_priv_t *ecp)
 		ecp->rx_skb[index] = new_skb;
 
 		skb_put(skb_to_upper, pkt_len - ETH_CRC_LEN); /* modify its data length, remove CRC */
-#define RX_DEBUG
+/*#define RX_DEBUG
 #ifndef RX_DEBUG
 		if (unlikely(netif_msg_rx_err(ecp))) {
 			check_icmp_sequence(skb_to_upper->data, __func__);
@@ -1852,7 +1852,7 @@ static void subisr_enet_rx(ec_priv_t *ecp)
 			printk(KERN_INFO"receive data:\n");
 			print_frame_data(skb_to_upper->data, skb_to_upper->len);
 		}
-#endif
+#endif*/
 		skb_to_upper->protocol = eth_type_trans(skb_to_upper, dev);
 		netif_rx(skb_to_upper);
 
@@ -2839,6 +2839,15 @@ static void hardware_reset_do_work(struct work_struct *work)
 #endif
 
 	ethernet_clock_disable();
+
+        if (ecp->tx_bd_base)
+                dma_free_coherent(NULL, sizeof(ec_bd_t) * TX_RING_SIZE,
+                                ecp->tx_bd_base, ecp->tx_bd_paddr);
+        if (ecp->rx_bd_base)
+                dma_free_coherent(NULL, sizeof(ec_bd_t) * RX_RING_SIZE,
+                                ecp->rx_bd_base, ecp->rx_bd_paddr);
+        ecp->tx_bd_base = (ec_bd_t *)dma_alloc_coherent(NULL, sizeof(ec_bd_t) * TX_RING_SIZE, &ecp->tx_bd_paddr, GFP_KERNEL);
+        ecp->rx_bd_base = (ec_bd_t *)dma_alloc_coherent(NULL, sizeof(ec_bd_t) * RX_RING_SIZE, &ecp->rx_bd_paddr, GFP_KERNEL);
 
     /* set default value of status */
 //    ecp->linked = false;
