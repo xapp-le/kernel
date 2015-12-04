@@ -2269,7 +2269,7 @@ static int ec_netdev_open(struct net_device *dev)
 
     printk(KERN_INFO "%s link %s.\n", dev->name, ecp->linked ? "on" : "off");
 
-#if 1
+#if 0
     /* FIXME!used by KSZ8041, other phy may not need this */
     if (ecp->phy_model != ETH_PHY_MODEL_ATC2605)
         phy_cable_plug_irq_enable(0);/* enable high level active */
@@ -2334,7 +2334,7 @@ static int ec_netdev_close(struct net_device *dev)
     stop_power_save_timer(ecp);
 #endif
 
-#if 1
+#if 0
     /* FIXME!used by KSZ8041, other phy may not need this */
     if (ecp->phy_model != ETH_PHY_MODEL_ATC2605)
         phy_cable_plug_irq_disable();
