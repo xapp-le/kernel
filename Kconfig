@@ -9,3 +9,5 @@ config SRCARCH
 	option env="SRCARCH"
 
 source "arch/$SRCARCH/Kconfig"
+config PLATFORM_UBUNTU
+	tristate "ubuntu: wifi uses only one interface, bt uses bluez"
