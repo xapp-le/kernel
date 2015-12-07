@@ -774,6 +774,7 @@ struct fb_videomode {
 	u32 sync;
 	u32 vmode;
 	u32 flag;
+	u32 vid;		/*optional*/
 };
 
 extern const char *fb_mode_option;

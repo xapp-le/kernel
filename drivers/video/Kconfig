@@ -17,11 +17,15 @@ config SH_LCD_MIPI_DSI
 
 source "drivers/char/agp/Kconfig"
 
+source "drivers/gpu/stub/Kconfig"
+
 source "drivers/gpu/vga/Kconfig"
 
 source "drivers/gpu/drm/Kconfig"
 
 source "drivers/gpu/host1x/Kconfig"
+
+source "drivers/gpu/pvr/Kconfig"
 
 config VGASTATE
        tristate
@@ -2495,6 +2499,7 @@ source "drivers/video/omap/Kconfig"
 source "drivers/video/omap2/Kconfig"
 source "drivers/video/exynos/Kconfig"
 source "drivers/video/mmp/Kconfig"
+source "drivers/video/owl/Kconfig"
 source "drivers/video/backlight/Kconfig"
 source "drivers/video/adf/Kconfig"
 

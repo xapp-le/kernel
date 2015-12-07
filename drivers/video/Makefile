@@ -182,3 +182,4 @@ endif
 
 # platform specific output drivers
 obj-$(CONFIG_VEXPRESS_DVI_CONTROL) += vexpress-dvi.o
+obj-y                             += owl/
