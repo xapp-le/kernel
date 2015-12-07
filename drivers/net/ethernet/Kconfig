@@ -33,7 +33,8 @@ source "drivers/net/ethernet/chelsio/Kconfig"
 source "drivers/net/ethernet/cirrus/Kconfig"
 source "drivers/net/ethernet/cisco/Kconfig"
 source "drivers/net/ethernet/davicom/Kconfig"
-
+source "drivers/net/ethernet/acts/Kconfig"
+source "drivers/net/ethernet/sg8201g/Kconfig"
 config DNET
 	tristate "Dave ethernet support (DNET)"
 	depends on HAS_IOMEM
@@ -58,7 +59,8 @@ source "drivers/net/ethernet/intel/Kconfig"
 source "drivers/net/ethernet/i825xx/Kconfig"
 source "drivers/net/ethernet/xscale/Kconfig"
 source "drivers/net/ethernet/icplus/Kconfig"
-
+source "drivers/net/ethernet/acts/Kconfig"
+source "drivers/net/ethernet/sg8201g/Kconfig"
 config JME
 	tristate "JMicron(R) PCI-Express Gigabit Ethernet support"
 	depends on PCI
