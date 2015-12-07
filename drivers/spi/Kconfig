@@ -531,6 +531,12 @@ config SPI_TLE62X0
 	  sysfs interface, with each line presented as a kind of GPIO
 	  exposing both switch control and diagnostic feedback.
 
+config SPI_OWL
+	tristate "Actions SOC SPI controller"
+	depends on ARCH_OWL
+	help
+	  SPI driver for Actions SOC
+
 #
 # Add new SPI protocol masters in alphabetical order above this line
 #
