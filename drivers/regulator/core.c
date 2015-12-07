@@ -2065,6 +2065,7 @@ EXPORT_SYMBOL_GPL(regulator_count_voltages);
 int regulator_list_voltage_linear(struct regulator_dev *rdev,
 				  unsigned int selector)
 {
+
 	if (selector >= rdev->desc->n_voltages)
 		return -EINVAL;
 	if (selector < rdev->desc->linear_min_sel)
