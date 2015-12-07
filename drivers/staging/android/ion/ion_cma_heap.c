@@ -24,6 +24,8 @@
 #include "ion.h"
 #include "ion_priv.h"
 
+#define ION_CMA_ENABLE_ALLOC_TIME_CHK 1
+
 #define ION_CMA_ALLOCATE_FAILED -1
 
 struct ion_cma_heap {
@@ -63,14 +65,15 @@ static int ion_cma_allocate(struct ion_heap *heap, struct ion_buffer *buffer,
 			    unsigned long len, unsigned long align,
 			    unsigned long flags)
 {
+#if ION_CMA_ENABLE_ALLOC_TIME_CHK
+	struct timespec ts_alloc_start, ts_alloc_end, ts_tmp;
+	ulong alloc_time_ms;
+#endif
 	struct ion_cma_heap *cma_heap = to_cma_heap(heap);
 	struct device *dev = cma_heap->dev;
 	struct ion_cma_buffer_info *info;
 
 	dev_dbg(dev, "Request buffer allocation len %ld\n", len);
-
-	if (buffer->flags & ION_FLAG_CACHED)
-		return -EINVAL;
 
 	if (align > PAGE_SIZE)
 		return -EINVAL;
@@ -81,13 +84,40 @@ static int ion_cma_allocate(struct ion_heap *heap, struct ion_buffer *buffer,
 		return ION_CMA_ALLOCATE_FAILED;
 	}
 
-	info->cpu_addr = dma_alloc_coherent(dev, len, &(info->handle),
-						GFP_HIGHUSER | __GFP_ZERO);
+#if ION_CMA_ENABLE_ALLOC_TIME_CHK
+	getnstimeofday(&ts_alloc_start);
+#endif
 
+	if (buffer->flags & ION_FLAG_CACHED) {
+		/* 关于cached的更改, 大部分在kernel中.
+		 * 原本是可以不动kernel的代码, 直接用dma_alloc_coherent分配完后再重新将页表
+		 * 改为cached的, 但是这样1是重复call改页表浪费时间, 2是不好看.
+		 * 故沿用改动最小的方式, 将原有的但是arm没有实现的API: dma_alloc_noncoherent
+		 * 实现起来. */
+		printk("++ION CMA 1 %ld \n", len);		
+		info->cpu_addr = dma_alloc_noncoherent(dev, len, &(info->handle),
+							GFP_HIGHUSER | __GFP_ZERO);
+		printk("--\n");
+
+	} else {
+		printk("++ION CMA 2 %ld \n", len);	
+		info->cpu_addr = dma_alloc_coherent(dev, len, &(info->handle),
+							GFP_HIGHUSER | __GFP_ZERO);
+		printk("--\n");	
+	}
 	if (!info->cpu_addr) {
-		dev_err(dev, "Fail to allocate buffer\n");
+		dev_err(dev, "Fail to allocate CMA buffer\n");
 		goto err;
 	}
+
+#if ION_CMA_ENABLE_ALLOC_TIME_CHK
+	getnstimeofday(&ts_alloc_end);
+	ts_tmp = timespec_sub(ts_alloc_end, ts_alloc_start);
+	alloc_time_ms = div_u64(timespec_to_ns(&ts_tmp), 1000000U);
+	if (alloc_time_ms > 200U)
+		dev_info(dev, "%s() too slow (%lums), len=%lu align=%lu\n",
+			__func__, alloc_time_ms, len, align);
+#endif
 
 	info->table = kmalloc(sizeof(struct sg_table), GFP_KERNEL);
 	if (!info->table) {
@@ -106,7 +136,10 @@ static int ion_cma_allocate(struct ion_heap *heap, struct ion_buffer *buffer,
 free_table:
 	kfree(info->table);
 free_mem:
-	dma_free_coherent(dev, len, info->cpu_addr, info->handle);
+	if (buffer->flags & ION_FLAG_CACHED)
+		dma_free_noncoherent(dev, len, info->cpu_addr, info->handle);
+	else
+		dma_free_coherent(dev, len, info->cpu_addr, info->handle);
 err:
 	kfree(info);
 	return ION_CMA_ALLOCATE_FAILED;
@@ -120,7 +153,10 @@ static void ion_cma_free(struct ion_buffer *buffer)
 
 	dev_dbg(dev, "Release buffer %p\n", buffer);
 	/* release memory */
-	dma_free_coherent(dev, buffer->size, info->cpu_addr, info->handle);
+	if (buffer->flags & ION_FLAG_CACHED)
+		dma_free_noncoherent(dev, buffer->size, info->cpu_addr, info->handle);
+	else
+		dma_free_coherent(dev, buffer->size, info->cpu_addr, info->handle);
 	/* release sg table */
 	sg_free_table(info->table);
 	kfree(info->table);
@@ -165,8 +201,12 @@ static int ion_cma_mmap(struct ion_heap *mapper, struct ion_buffer *buffer,
 	struct device *dev = cma_heap->dev;
 	struct ion_cma_buffer_info *info = buffer->priv_virt;
 
-	return dma_mmap_coherent(dev, vma, info->cpu_addr, info->handle,
-				 buffer->size);
+	if (buffer->flags & ION_FLAG_CACHED)
+		return dma_mmap_noncoherent(dev, vma, info->cpu_addr, info->handle,
+					buffer->size);
+	else
+		return dma_mmap_coherent(dev, vma, info->cpu_addr, info->handle,
+					buffer->size);
 }
 
 static void *ion_cma_map_kernel(struct ion_heap *heap,

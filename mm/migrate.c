@@ -595,7 +595,7 @@ EXPORT_SYMBOL(buffer_migrate_page);
 static int writeout(struct address_space *mapping, struct page *page)
 {
 	struct writeback_control wbc = {
-		.sync_mode = WB_SYNC_NONE,
+		.sync_mode = WB_SYNC_ALL,
 		.nr_to_write = 1,
 		.range_start = 0,
 		.range_end = LLONG_MAX,
@@ -712,7 +712,7 @@ static int move_to_new_page(struct page *newpage, struct page *page,
 
 	return rc;
 }
-
+extern void boost_cma_requests(unsigned int start_pfn, unsigned int end_pfn);
 static int __unmap_and_move(struct page *page, struct page *newpage,
 				int force, enum migrate_mode mode)
 {
@@ -760,6 +760,7 @@ static int __unmap_and_move(struct page *page, struct page *newpage,
 		}
 		if (!force)
 			goto uncharge;
+	//	boost_cma_requests(page_to_pfn(page), page_to_pfn(page));
 		wait_on_page_writeback(page);
 	}
 	/*
@@ -1032,6 +1033,7 @@ int migrate_pages(struct list_head *from, new_page_t get_new_page,
 			case -ENOMEM:
 				goto out;
 			case -EAGAIN:
+				set_need_resched();
 				retry++;
 				break;
 			case MIGRATEPAGE_SUCCESS:

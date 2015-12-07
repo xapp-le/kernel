@@ -386,6 +386,9 @@ ENDPROC(__dabt_usr)
 __irq_usr:
 	usr_entry
 	kuser_cmpxchg_check
+#ifdef CONFIG_OWL_DEBUG_IRQ_STACK
+	kuser_stack_chg_save
+#endif
 	irq_handler
 	get_thread_info tsk
 	mov	why, #0

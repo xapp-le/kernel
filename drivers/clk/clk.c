@@ -1058,7 +1058,7 @@ out:
 	return ret;
 }
 
-static void clk_calc_subtree(struct clk *clk, unsigned long new_rate)
+void clk_calc_subtree(struct clk *clk, unsigned long new_rate)
 {
 	struct clk *child;
 

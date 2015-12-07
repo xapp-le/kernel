@@ -143,6 +143,7 @@ static union { char c[4]; unsigned long l; } endian_test __initdata = { { 'l', '
 #define ENDIANNESS ((char)endian_test.l)
 
 DEFINE_PER_CPU(struct cpuinfo_arm, cpu_data);
+EXPORT_PER_CPU_SYMBOL(cpu_data);
 
 /*
  * Standard memory resources
@@ -922,6 +923,10 @@ static int c_show(struct seq_file *m, void *v)
 	int i, j;
 	u32 cpuid;
 
+	cpuid = is_smp() ? per_cpu(cpu_data, 0).cpuid : read_cpuid_id();
+	seq_printf(m, "Processor\t: %s rev %d (%s)\n",
+		   cpu_name, cpuid & 15, elf_platform);
+		   
 	for_each_online_cpu(i) {
 		/*
 		 * glibc reads /proc/cpuinfo to determine the number of

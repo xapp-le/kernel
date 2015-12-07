@@ -65,3 +65,9 @@ int drop_caches_sysctl_handler(ctl_table *table, int write,
 	}
 	return 0;
 }
+
+void fs_drop_page_caches(void)
+{
+	iterate_supers(drop_pagecache_sb, NULL);
+	drop_slab();
+}

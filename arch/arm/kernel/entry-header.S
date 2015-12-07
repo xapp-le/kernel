@@ -44,6 +44,22 @@
 #endif
 	.endm
 
+#ifdef CONFIG_OWL_DEBUG_IRQ_STACK
+	.macro	kuser_stack_chg_save
+	mov	r0, sp
+	bl	owl_debug_save_irqstack
+	.endm
+
+	.macro	kuser_stack_chg_check
+	mov	r0, sp
+	bl	owl_debug_check_irqstack
+	.endm
+
+	.macro	kuser_stack_chg_clear
+	bl	owl_debug_clear_irqstack
+	.endm
+#endif
+	
 	@
 	@ Store/load the USER SP and LR registers by switching to the SYS
 	@ mode. Useful in Thumb-2 mode where "stm/ldm rd, {sp, lr}^" is not

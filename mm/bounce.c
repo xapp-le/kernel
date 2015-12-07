@@ -147,7 +147,7 @@ static void bounce_end_io(struct bio *bio, mempool_t *pool, int err)
 	bio_put(bio);
 }
 
-static void bounce_end_io_write(struct bio *bio, int err)
+void bounce_end_io_write(struct bio *bio, int err)
 {
 	bounce_end_io(bio, page_pool, err);
 }
@@ -210,7 +210,6 @@ static void __blk_queue_bounce(struct request_queue *q, struct bio **bio_orig,
 		if (page_to_pfn(from->bv_page) > queue_bounce_pfn(q))
 			goto bounce;
 
-	return;
 bounce:
 	bio = bio_clone_bioset(*bio_orig, GFP_NOIO, fs_bio_set);
 

@@ -434,9 +434,9 @@ static void bdi_wb_init(struct bdi_writeback *wb, struct backing_dev_info *bdi)
 }
 
 /*
- * Initial write bandwidth: 100 MB/s
+ * Initial write bandwidth: 30 MB/s
  */
-#define INIT_BW		(100 << (20 - PAGE_SHIFT))
+#define INIT_BW		(30 << (20 - PAGE_SHIFT))
 
 int bdi_init(struct backing_dev_info *bdi)
 {

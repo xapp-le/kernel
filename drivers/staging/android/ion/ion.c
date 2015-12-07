@@ -35,6 +35,10 @@
 #include <linux/debugfs.h>
 #include <linux/dma-buf.h>
 #include <linux/idr.h>
+#include <linux/cpu.h>
+
+#include <linux/smp.h>
+#include <asm/cacheflush.h>
 
 #include "ion.h"
 #include "ion_priv.h"
@@ -197,6 +201,9 @@ static struct ion_buffer *ion_buffer_create(struct ion_heap *heap,
 		if (!(heap->flags & ION_HEAP_FLAG_DEFER_FREE))
 			goto err2;
 
+		pr_debug("%s: wait for deffer free, heap=%s\n",
+			__func__, heap->name);
+
 		ion_heap_freelist_drain(heap, 0);
 		ret = heap->ops->allocate(heap, buffer, len, align,
 					  flags);
@@ -251,8 +258,10 @@ static struct ion_buffer *ion_buffer_create(struct ion_heap *heap,
 	   allocation via dma_map_sg. The implicit contract here is that
 	   memory comming from the heaps is ready for dma, ie if it has a
 	   cached mapping that mapping has been invalidated */
-	for_each_sg(buffer->sg_table->sgl, sg, buffer->sg_table->nents, i)
+	for_each_sg(buffer->sg_table->sgl, sg, buffer->sg_table->nents, i) {
 		sg_dma_address(sg) = sg_phys(sg);
+		sg_dma_len(sg) = sg->length;
+	}
 	mutex_lock(&dev->buffer_lock);
 	ion_buffer_add(dev, buffer);
 	mutex_unlock(&dev->buffer_lock);
@@ -400,6 +409,11 @@ static int ion_handle_put(struct ion_handle *handle)
 	return ret;
 }
 
+int ion_handle_put_outter(struct ion_handle *handle)
+{
+	return ion_handle_put(handle);
+}
+
 static struct ion_handle *ion_handle_lookup(struct ion_client *client,
 					    struct ion_buffer *buffer)
 {
@@ -417,7 +431,7 @@ static struct ion_handle *ion_handle_lookup(struct ion_client *client,
 	return ERR_PTR(-EINVAL);
 }
 
-static struct ion_handle *ion_handle_get_by_id(struct ion_client *client,
+struct ion_handle *ion_handle_get_by_id(struct ion_client *client,
 						int id)
 {
 	struct ion_handle *handle;
@@ -479,8 +493,8 @@ struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
 	struct ion_heap *heap;
 	int ret;
 
-	pr_debug("%s: len %zu align %zu heap_id_mask %u flags %x\n", __func__,
-		 len, align, heap_id_mask, flags);
+	pr_debug("%s: client %s len %zu align %zu heap_id_mask %u flags %x\n", __func__,
+		 client->name, len, align, heap_id_mask, flags);
 	/*
 	 * traverse the list of heaps available in this system in priority
 	 * order.  If the heap type is supported by the client, and matches the
@@ -500,14 +514,19 @@ struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
 		buffer = ion_buffer_create(heap, dev, len, align, flags);
 		if (!IS_ERR(buffer))
 			break;
+		pr_debug("%s: failed to alloc from heap %s, client=%s size=%u\n",
+			__func__, heap->name, client->name, len);
 	}
 	up_read(&dev->lock);
 
 	if (buffer == NULL)
 		return ERR_PTR(-ENODEV);
 
-	if (IS_ERR(buffer))
+	if (IS_ERR(buffer)) {
+		pr_info("%s: failed to alloc, client=%s size=%u heap_id_mask=0x%x\n",
+			__func__, client->name, len, heap_id_mask);
 		return ERR_PTR(PTR_ERR(buffer));
+	}
 
 	handle = ion_handle_create(client, buffer);
 
@@ -566,9 +585,12 @@ int ion_phys(struct ion_client *client, struct ion_handle *handle,
 	buffer = handle->buffer;
 
 	if (!buffer->heap->ops->phys) {
-		pr_err("%s: ion_phys is not implemented by this heap.\n",
-		       __func__);
-		mutex_unlock(&client->lock);
+		int heap_id = buffer->heap->id;
+		enum ion_heap_type heap_type = buffer->heap->type;
+		const char *heap_name = buffer->heap->name;
+		mutex_unlock(&client->lock); /* unlock before print. */
+		pr_warn("%s: ion_phys is not implemented by this heap (id=%u type=%u name=%s).\n",
+		       __func__, heap_id, (uint)heap_type, heap_name);
 		return -ENODEV;
 	}
 	mutex_unlock(&client->lock);
@@ -625,6 +647,10 @@ static void ion_handle_kmap_put(struct ion_handle *handle)
 {
 	struct ion_buffer *buffer = handle->buffer;
 
+	if (!handle->kmap_cnt) {
+		WARN(1, "%s: Double unmap detected! bailing...\n", __func__);
+		return;
+	}
 	handle->kmap_cnt--;
 	if (!handle->kmap_cnt)
 		ion_buffer_kmap_put(buffer);
@@ -852,9 +878,9 @@ struct sg_table *ion_sg_table(struct ion_client *client,
 
 	mutex_lock(&client->lock);
 	if (!ion_handle_validate(client, handle)) {
+		mutex_unlock(&client->lock);
 		pr_err("%s: invalid handle passed to map_dma.\n",
 		       __func__);
-		mutex_unlock(&client->lock);
 		return ERR_PTR(-EINVAL);
 	}
 	buffer = handle->buffer;
@@ -897,6 +923,7 @@ void ion_pages_sync_for_device(struct device *dev, struct page *page,
 	 * hardware.
 	 */
 	sg_dma_address(&sg) = page_to_phys(page);
+
 	dma_sync_sg_for_device(dev, &sg, 1, dir);
 }
 
@@ -1187,6 +1214,18 @@ end:
 }
 EXPORT_SYMBOL(ion_import_dma_buf);
 
+static void _ion_local_l1_cache_flush_all(void *info)
+{
+	flush_cache_all();
+}
+
+static void ion_local_l1_cache_flush_all(void)
+{
+	get_online_cpus();
+	on_each_cpu(_ion_local_l1_cache_flush_all, NULL, 1);
+	put_online_cpus();
+}
+
 static int ion_sync_for_device(struct ion_client *client, int fd)
 {
 	struct dma_buf *dmabuf;
@@ -1205,10 +1244,175 @@ static int ion_sync_for_device(struct ion_client *client, int fd)
 	}
 	buffer = dmabuf->priv;
 
+	/* 原意是 > cache_size 时按照way刷, 否则按line刷, 在kernel内修改是很简单的,
+	 * 但是考虑到不通用(仅仅是ion用), 只能在ion内修改, 所以显得有点绕. */
+	if (buffer->size >= 64*1024 && buffer->heap->ops->phys) {
+		ion_phys_addr_t phy_addr;
+		size_t phy_len;
+		int ret;
+
+		ret = buffer->heap->ops->phys(buffer->heap, buffer, &phy_addr, &phy_len);
+		if(ret == 0) {
+			/* L1 clean and invalidate all */
+			ion_local_l1_cache_flush_all();
+			/* L2 clean and invalidate, 内部会判断, >cache_size则全刷. */
+			outer_flush_range(phy_addr, phy_addr + phy_len);
+			goto out;
+		}
+	}
+
+	/* fallback to original implement */
+	/* must be paired to form a clean-and-invalidate operation. */
 	dma_sync_sg_for_device(NULL, buffer->sg_table->sgl,
-			       buffer->sg_table->nents, DMA_BIDIRECTIONAL);
+				   buffer->sg_table->nents, DMA_BIDIRECTIONAL);
+	dma_sync_sg_for_cpu(NULL, buffer->sg_table->sgl,
+				   buffer->sg_table->nents, DMA_BIDIRECTIONAL);
+
+out:
 	dma_buf_put(dmabuf);
 	return 0;
+}
+
+static int check_vaddr_bounds(unsigned long start, unsigned long end)
+{
+	struct mm_struct *mm = current->active_mm;
+	struct vm_area_struct *vma;
+	int ret = 1;
+
+	if (end < start)
+		goto out;
+
+	down_read(&mm->mmap_sem);
+	vma = find_vma(mm, start);
+	if (vma && vma->vm_start < end) {
+		if (start < vma->vm_start)
+			goto out_up;
+		if (end > vma->vm_end)
+			goto out_up;
+		ret = 0;
+	}
+
+out_up:
+	up_read(&mm->mmap_sem);
+out:
+	return ret;
+}
+
+static void _ion_outer_clean_range(phys_addr_t start, phys_addr_t end)
+{
+    outer_clean_range(start, end);
+}
+
+static void _ion_outer_inv_range(phys_addr_t start, phys_addr_t end)
+{
+    outer_inv_range(start, end);
+}
+
+static void _ion_outer_flush_range(phys_addr_t start, phys_addr_t end)
+{
+    outer_flush_range(start, end);
+}
+
+static int _ion_do_cache_op(struct ion_client *client, struct ion_handle *handle,
+			void *vaddr, unsigned long offset, unsigned long length,
+			unsigned int cmd)
+{
+	void (*outer_cache_op)(phys_addr_t, phys_addr_t);
+	struct ion_buffer *buffer;
+	ion_phys_addr_t phy_addr;
+	size_t phy_len;
+	int ret = -EINVAL;
+
+	mutex_lock(&client->lock);
+	if (!ion_handle_validate(client, handle)) {
+		pr_err("%s: invalid handle passed to do_cache_op.\n", __func__);
+		mutex_unlock(&client->lock);
+		return -EINVAL;
+	}
+	buffer = handle->buffer;
+	mutex_lock(&buffer->lock);
+
+	if ((buffer->flags & ION_FLAG_CACHED) == 0) {
+		pr_warn("%s: non-cached buffer, no need to do cache_op\n", __func__);
+		ret = 0;
+		goto out;
+	}
+
+	if (buffer->heap->ops->phys) {
+		switch (cmd) {
+		case ION_IOC_CLEAN_CACHES:
+			pr_debug("ION_IOC_CLEAN_CACHES");
+			__cpuc_flush_dcache_area(vaddr, length);
+			outer_cache_op = _ion_outer_clean_range;
+			break;
+		case ION_IOC_INV_CACHES:
+			pr_debug("ION_IOC_INV_CACHES");
+			__cpuc_flush_dcache_area(vaddr, length);
+			outer_cache_op = _ion_outer_inv_range;
+			break;
+		case ION_IOC_CLEAN_INV_CACHES:
+			pr_debug("ION_IOC_CLEAN_INV_CACHES");
+			__cpuc_flush_dcache_area(vaddr, length);
+			outer_cache_op = _ion_outer_flush_range;
+			break;
+		default:
+			pr_err("%s: unknown cache_op cmd 0x%x\n", __func__, cmd);
+			goto out;
+		}
+
+		ret = buffer->heap->ops->phys(buffer->heap, buffer, &phy_addr, &phy_len);
+		if (ret != 0) {
+			pr_err("%s: failed to get phy_addr of buffer\n", __func__);
+			goto out;
+		}
+		if (offset < phy_len) {
+			unsigned long pstart, pend;
+
+			pstart = phy_addr + offset;
+			pend = pstart + length;
+			if(pend > phy_addr + phy_len) {
+				pr_warn("%s: range err, phy_len=%u offset=%lu length=%lu\n",
+					__func__, phy_len, offset, length);
+				pend = phy_addr + phy_len;
+			}
+			pr_debug("%s %d: outer_cache_op pstart %lx end %lx\n",
+				__func__, __LINE__, pstart, pstart + length);
+			
+			outer_cache_op(pstart, pstart + length);
+		} else {
+			pr_err("%s: range err, phy_len=%u offset=%lu length=%lu\n",
+				__func__, phy_len, offset, length);
+		}
+	} else {
+		/* fallback to DMA-API */
+		enum dma_data_direction dma_dir;
+
+		switch (cmd) {
+		case ION_IOC_CLEAN_CACHES:
+			dma_dir = DMA_TO_DEVICE;
+			break;
+		case ION_IOC_INV_CACHES:
+			dma_dir = DMA_FROM_DEVICE;
+			break;
+		case ION_IOC_CLEAN_INV_CACHES:
+			dma_dir = DMA_BIDIRECTIONAL;
+			break;
+		default:
+			pr_err("%s: unknown cache_op cmd 0x%x\n", __func__, cmd);
+			goto out;
+		}
+		/* must be paired to form a clean-and-invalidate operation. */
+		dma_sync_sg_for_device(NULL, buffer->sg_table->sgl,
+					   buffer->sg_table->nents, dma_dir);
+		dma_sync_sg_for_cpu(NULL, buffer->sg_table->sgl,
+					   buffer->sg_table->nents, dma_dir);
+	}
+
+out:
+	mutex_unlock(&buffer->lock);
+	mutex_unlock(&client->lock);
+	return ret;
+
 }
 
 /* fix up the cases where the ioctl direction bits are incorrect */
@@ -1313,7 +1517,55 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 						data.custom.arg);
 		break;
 	}
+	case ION_IOC_CLEAN_CACHES:
+	case ION_IOC_INV_CACHES:
+	case ION_IOC_CLEAN_INV_CACHES:
+	{
+		struct ion_flush_data data;
+		unsigned long start, end;
+		struct ion_handle *handle = NULL;
+		int ret;
+
+		pr_debug("%s CLEAN_CACHES/INV_CACHES/CLEAN_INV_CACHES\n", __func__);
+
+		if (copy_from_user(&data, (void __user *)arg,
+				sizeof(struct ion_flush_data))) {
+			pr_err("%s: copy_from_user err\n", __func__);
+			return -EFAULT;
+		}
+
+		start = (unsigned long) data.vaddr;
+		end = (unsigned long) data.vaddr + data.length;
+
+		if (check_vaddr_bounds(start, end)) {
+			pr_err("%s: virtual address %p is out of bounds\n",
+				__func__, data.vaddr);
+			return -EINVAL;
+		}
+
+		handle = ion_import_dma_buf(client, data.fd);
+		if (IS_ERR(handle)) {
+			pr_err("%s: Could not import handle: %d\n",
+				__func__, (int)handle);
+			return -EINVAL;
+		}
+
+		ret = _ion_do_cache_op(client,
+					handle,
+					data.vaddr, data.offset, data.length,
+					cmd);
+
+		ion_free(client, handle);
+
+		if (ret < 0) {
+			pr_err("%s: heap cache_op err, ret=%d\n", __func__, ret);
+			return ret;
+		}
+		break;
+
+	}
 	default:
+		pr_err("%s: unknown ion ioctl cmd 0x%x\n", __func__, cmd);
 		return -ENOTTY;
 	}
 
@@ -1632,3 +1884,16 @@ void __init ion_reserve(struct ion_platform_data *data)
 			data->heaps[i].size);
 	}
 }
+
+
+/**
+ * ion_get_handle_id() - get ion_handle's id.
+ * 
+ * This is an afterthought API provided by Actions(Zhuhai) Technology
+ * Co., Limited, which is used by OWL Display Engine MMU driver
+ * (drivers/video/owl/dss/mmu.c) to identify an unique ION buffer. */
+int ion_get_handle_id(struct ion_handle *handle)
+{
+	return handle->id;
+}
+

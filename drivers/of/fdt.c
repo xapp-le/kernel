@@ -558,13 +558,17 @@ void __init early_init_dt_check_for_initrd(unsigned long node)
 	pr_debug("Looking for initrd properties... ");
 
 	prop = of_get_flat_dt_prop(node, "linux,initrd-start", &len);
-	if (!prop)
+	if (!prop) {
+		pr_info("can not get prop linux,initrd-start from dts");
 		return;
+	}
 	start = of_read_ulong(prop, len/4);
 
 	prop = of_get_flat_dt_prop(node, "linux,initrd-end", &len);
-	if (!prop)
+	if (!prop) {
+		pr_info("can not get prop linux,initrd-end from dts");
 		return;
+	}
 	end = of_read_ulong(prop, len/4);
 
 	early_init_dt_setup_initrd_arch(start, end);

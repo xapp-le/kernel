@@ -277,6 +277,7 @@ static inline void pm_print_times_init(void) {}
 #endif /* CONFIG_PM_SLEEP_DEBUG */
 
 struct kobject *power_kobj;
+EXPORT_SYMBOL(power_kobj);
 
 /**
  *	state - control system power state.
@@ -345,20 +346,23 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 	if (error)
 		return error;
 
-	if (pm_autosleep_state() > PM_SUSPEND_ON) {
-		error = -EBUSY;
-		goto out;
-	}
-
 	state = decode_state(buf, n);
-	if (state < PM_SUSPEND_MAX)
+	
+	if (state < PM_SUSPEND_MAX) {
+#ifdef CONFIG_EARLYSUSPEND
+		if (state == PM_SUSPEND_ON || valid_state(state)) {
+			error = 0;
+			request_suspend_state(state);
+		}
+#else
 		error = pm_suspend(state);
+#endif
+	}
 	else if (state == PM_SUSPEND_MAX)
 		error = hibernate();
 	else
 		error = -EINVAL;
 
- out:
 	pm_autosleep_unlock();
 	return error ? error : n;
 }

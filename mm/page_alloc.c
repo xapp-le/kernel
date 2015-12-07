@@ -65,6 +65,8 @@
 #include <asm/div64.h>
 #include "internal.h"
 
+extern void invalidate_bh_lrus(void);
+
 #ifdef CONFIG_USE_PERCPU_NUMA_NODE_ID
 DEFINE_PER_CPU(int, numa_node);
 EXPORT_PER_CPU_SYMBOL(numa_node);
@@ -464,28 +466,6 @@ static inline void rmv_page_order(struct page *page)
 	set_page_private(page, 0);
 }
 
-/*
- * Locate the struct page for both the matching buddy in our
- * pair (buddy1) and the combined O(n+1) page they form (page).
- *
- * 1) Any buddy B1 will have an order O twin B2 which satisfies
- * the following equation:
- *     B2 = B1 ^ (1 << O)
- * For example, if the starting buddy (buddy2) is #8 its order
- * 1 buddy is #10:
- *     B2 = 8 ^ (1 << 1) = 8 ^ 2 = 10
- *
- * 2) Any buddy B will have an order O+1 parent P which
- * satisfies the following equation:
- *     P = B & ~(1 << O)
- *
- * Assumption: *_mem_map is contiguous at least up to MAX_ORDER
- */
-static inline unsigned long
-__find_buddy_index(unsigned long page_idx, unsigned int order)
-{
-	return page_idx ^ (1 << order);
-}
 
 /*
  * This function checks whether a page is free && is the buddy
@@ -553,6 +533,7 @@ static inline void __free_one_page(struct page *page,
 	unsigned long combined_idx;
 	unsigned long uninitialized_var(buddy_idx);
 	struct page *buddy;
+	int max_order = MAX_ORDER;
 
 	VM_BUG_ON(!zone_is_initialized(zone));
 
@@ -561,13 +542,23 @@ static inline void __free_one_page(struct page *page,
 			return;
 
 	VM_BUG_ON(migratetype == -1);
+	if (is_migrate_isolate(migratetype)) {
+		/*
+		 * We restrict max order of merging to prevent merge
+		 * between freepages on isolate pageblock and normal
+		 * pageblock. Without this, pageblock isolation
+		 * could cause incorrect freepage accounting.
+		 */
+		max_order = min(MAX_ORDER, pageblock_order + 1);
+	} else
+		__mod_zone_freepage_state(zone, 1 << order, migratetype);
 
-	page_idx = page_to_pfn(page) & ((1 << MAX_ORDER) - 1);
+	page_idx = page_to_pfn(page) & ((1 << max_order) - 1);
 
 	VM_BUG_ON(page_idx & ((1 << order) - 1));
 	VM_BUG_ON(bad_range(zone, page));
 
-	while (order < MAX_ORDER-1) {
+	while (order < max_order-1) {
 		buddy_idx = __find_buddy_index(page_idx, order);
 		buddy = page + (buddy_idx - page_idx);
 		if (!page_is_buddy(page, buddy, order))
@@ -686,14 +677,12 @@ static void free_pcppages_bulk(struct zone *zone, int count,
 			/* must delete as __free_one_page list manipulates */
 			list_del(&page->lru);
 			mt = get_freepage_migratetype(page);
+			if (unlikely(has_isolate_pageblock(zone)))
+				mt = get_pageblock_migratetype(page);
+
 			/* MIGRATE_MOVABLE list may include MIGRATE_RESERVEs */
 			__free_one_page(page, zone, 0, mt);
 			trace_mm_page_pcpu_drain(page, 0, mt);
-			if (likely(!is_migrate_isolate_page(page))) {
-				__mod_zone_page_state(zone, NR_FREE_PAGES, 1);
-				if (is_migrate_cma(mt))
-					__mod_zone_page_state(zone, NR_FREE_CMA_PAGES, 1);
-			}
 		} while (--to_free && --batch_free && !list_empty(list));
 	}
 	spin_unlock(&zone->lock);
@@ -706,9 +695,12 @@ static void free_one_page(struct zone *zone, struct page *page, int order,
 	zone->all_unreclaimable = 0;
 	zone->pages_scanned = 0;
 
+	if (unlikely(has_isolate_pageblock(zone) ||
+		is_migrate_isolate(migratetype))) {
+		migratetype = get_pageblock_migratetype(page);
+	}
+
 	__free_one_page(page, zone, order, migratetype);
-	if (unlikely(!is_migrate_isolate(migratetype)))
-		__mod_zone_freepage_state(zone, 1 << order, migratetype);
 	spin_unlock(&zone->lock);
 }
 
@@ -782,6 +774,56 @@ void __meminit __free_pages_bootmem(struct page *page, unsigned int order)
 }
 
 #ifdef CONFIG_CMA
+void adjust_managed_cma_page_count(struct zone *zone, long count)
+{
+	unsigned long flags;
+	long total, cma, movable;
+
+	spin_lock_irqsave(&zone->lock, flags);
+	zone->managed_cma_pages += count;
+
+	total = zone->managed_pages;
+	cma = zone->managed_cma_pages;
+	movable = total - cma - high_wmark_pages(zone);
+
+	/* No cma pages, so do only movable allocation */
+	if (cma <= 0) {
+		zone->max_try_movable = pageblock_nr_pages;
+		zone->max_try_cma = 0;
+		goto out;
+	}
+
+	/*
+	 * We want to consume cma pages with well balanced ratio so that
+	 * we have consumed enough cma pages before the reclaim. For this
+	 * purpose, we can use the ratio, movable : cma. And we doesn't
+	 * want to switch too frequently, because it prevent allocated pages
+	 * from beging successive and it is bad for some sorts of devices.
+	 * I choose pageblock_nr_pages for the minimum amount of successive
+	 * allocation because it is the size of a huge page and fragmentation
+	 * avoidance is implemented based on this size.
+	 *
+	 * To meet above criteria, I derive following equation.
+	 *
+	 * if (movable > cma) then; movable : cma = X : pageblock_nr_pages
+	 * else (movable <= cma) then; movable : cma = pageblock_nr_pages : X
+	 */
+	if (movable > cma) {
+		zone->max_try_movable =
+			(movable * pageblock_nr_pages) / cma;
+		zone->max_try_cma = pageblock_nr_pages;
+	} else {
+		zone->max_try_movable = pageblock_nr_pages;
+		zone->max_try_cma = cma * pageblock_nr_pages / movable;
+	}
+
+out:
+	zone->nr_try_movable = zone->max_try_movable;
+	zone->nr_try_cma = zone->max_try_cma;
+
+	spin_unlock_irqrestore(&zone->lock, flags);
+}
+
 /* Free whole pageblock and set it's migration type to MIGRATE_CMA. */
 void __init init_cma_reserved_pageblock(struct page *page)
 {
@@ -1105,6 +1147,45 @@ __rmqueue_fallback(struct zone *zone, int order, int start_migratetype)
 	return NULL;
 }
 
+#ifdef CONFIG_CMA
+static struct page *__rmqueue_cma(struct zone *zone, unsigned int order)
+{
+	struct page *page;
+	unsigned long force_cma_wmark, zone_free_pages;
+
+	/* mod by actions:
+	 * if we are lack of memory, get pages from CMA first. */
+	force_cma_wmark = zone->managed_cma_pages;
+	zone_free_pages = zone_page_state(zone, NR_FREE_PAGES) -
+			zone_page_state(zone, NR_FREE_CMA_PAGES);
+
+	while (1) {
+		if (zone->nr_try_cma > 0 || zone_free_pages < force_cma_wmark) {
+			/* Okay. Now, we can try to allocate the page from cma region */
+			zone->nr_try_cma -= 1 << order;
+			page = __rmqueue_smallest(zone, order, MIGRATE_CMA);
+
+			/* CMA pages can vanish through CMA allocation */
+			if (unlikely(!page && order == 0))
+				zone->nr_try_cma = 0;
+
+			return page;
+		}
+
+		if (zone->nr_try_movable > 0)
+			break;
+
+		/* Reset counter */
+		zone->nr_try_movable = zone->max_try_movable;
+		zone->nr_try_cma = zone->max_try_cma;
+	}
+
+	/* alloc_movable */
+	zone->nr_try_movable -= 1 << order;
+	return NULL;
+}
+#endif
+
 /*
  * Do the hard work of removing an element from the buddy allocator.
  * Call me with the zone->lock already held.
@@ -1112,10 +1193,16 @@ __rmqueue_fallback(struct zone *zone, int order, int start_migratetype)
 static struct page *__rmqueue(struct zone *zone, unsigned int order,
 						int migratetype)
 {
-	struct page *page;
+	struct page *page = NULL;
+
+#ifdef CONFIG_CMA
+	if (migratetype == MIGRATE_MOVABLE && zone->managed_cma_pages)
+		page = __rmqueue_cma(zone, order);
+#endif
 
 retry_reserve:
-	page = __rmqueue_smallest(zone, order, migratetype);
+	if (!page)
+		page = __rmqueue_smallest(zone, order, migratetype);
 
 	if (unlikely(!page) && migratetype != MIGRATE_RESERVE) {
 		page = __rmqueue_fallback(zone, order, migratetype);
@@ -1415,7 +1502,7 @@ void split_page(struct page *page, unsigned int order)
 }
 EXPORT_SYMBOL_GPL(split_page);
 
-static int __isolate_free_page(struct page *page, unsigned int order)
+int __isolate_free_page(struct page *page, unsigned int order)
 {
 	unsigned long watermark;
 	struct zone *zone;
@@ -4682,6 +4769,9 @@ static void __paginginit free_area_init_core(struct pglist_data *pgdat,
 		zone->zone_pgdat = pgdat;
 
 		zone_pcp_init(zone);
+#ifdef CONFIG_CMA
+		zone->managed_cma_pages = 0;
+#endif
 		lruvec_init(&zone->lruvec);
 		if (!size)
 			continue;
@@ -5926,6 +6016,8 @@ static int __alloc_contig_migrate_range(struct compact_control *cc,
 	return 0;
 }
 
+//extern void boost_cma_requests_start(unsigned int start_pfn, unsigned int end_pfn);
+//extern void boost_cma_requests_end(void);
 /**
  * alloc_contig_range() -- tries to allocate given range of pages
  * @start:	start PFN to allocate
@@ -5991,7 +6083,18 @@ int alloc_contig_range(unsigned long start, unsigned long end,
 	if (ret)
 		return ret;
 
+	/* patch applied by actions
+	 * For page migration of CMA, buffer-heads of lru should be dropped.
+	 * please refer to:
+	 *   https://lkml.org/lkml/2014/6/23/932
+	 *   https://lkml.org/lkml/2014/7/4/101
+	 *   http://www.gossamer-threads.com/lists/linux/kernel/1971100 */
+	invalidate_bh_lrus();
+
+	//boost_cma_requests_start(start, end);	
 	ret = __alloc_contig_migrate_range(&cc, start, end);
+	//boost_cma_requests_end();
+	
 	if (ret)
 		goto done;
 

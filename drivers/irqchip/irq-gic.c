@@ -280,7 +280,7 @@ static int gic_set_wake(struct irq_data *d, unsigned int on)
 #define gic_set_wake	NULL
 #endif
 
-static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
+asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 {
 	u32 irqstat, irqnr;
 	struct gic_chip_data *gic = &gic_data[0];
@@ -848,7 +848,7 @@ static int gic_irq_domain_xlate(struct irq_domain *d,
 }
 
 #ifdef CONFIG_SMP
-static int __cpuinit gic_secondary_init(struct notifier_block *nfb,
+int __cpuinit gic_secondary_init(struct notifier_block *nfb,
 					unsigned long action, void *hcpu)
 {
 	if (action == CPU_STARTING || action == CPU_STARTING_FROZEN)

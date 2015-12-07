@@ -1872,7 +1872,7 @@ int update_console_cmdline(char *name, int idx, char *name_new, int idx_new, cha
 	return -1;
 }
 
-bool console_suspend_enabled = 1;
+bool console_suspend_enabled = 0;
 EXPORT_SYMBOL(console_suspend_enabled);
 
 static int __init console_suspend_disable(char *str)
@@ -2045,6 +2045,7 @@ void console_unlock(void)
 	/* flush buffered message fragment immediately to console */
 	console_cont_flush(text, sizeof(text));
 again:
+	retry = 0;
 	for (;;) {
 		struct log *msg;
 		size_t len;

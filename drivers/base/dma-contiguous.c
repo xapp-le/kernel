@@ -57,7 +57,7 @@ struct cma *dma_contiguous_default_area;
  * Users, who want to set the size of global CMA area for their system
  * should use cma= kernel parameter.
  */
-static const phys_addr_t size_bytes = CMA_SIZE_MBYTES * SZ_1M;
+static phys_addr_t size_bytes = CMA_SIZE_MBYTES * SZ_1M; /* modified by actions, 'const' removed */
 static phys_addr_t size_cmdline = -1;
 
 static int __init early_cma(char *p)
@@ -94,6 +94,13 @@ static inline __maybe_unused phys_addr_t cma_early_percent_memory(void)
 }
 
 #endif
+
+/* add by actions */
+void __init dma_contiguous_set_global_reserve_size(phys_addr_t new_size)
+{
+	if (new_size > size_bytes)
+		size_bytes = new_size;
+}
 
 /**
  * dma_contiguous_reserve() - reserve area for contiguous memory handling
@@ -153,6 +160,8 @@ static __init int cma_activate_area(unsigned long base_pfn, unsigned long count)
 		}
 		init_cma_reserved_pageblock(pfn_to_page(base_pfn));
 	} while (--i);
+	adjust_managed_cma_page_count(zone, count);
+
 	return 0;
 }
 
@@ -307,6 +316,7 @@ struct page *dma_alloc_from_contiguous(struct device *dev, int count,
 				       unsigned int align)
 {
 	unsigned long mask, pfn, pageno, start = 0;
+	unsigned long retry_timeout, retry_cnt;
 	struct cma *cma = dev_get_cma_area(dev);
 	struct page *page = NULL;
 	int ret;
@@ -323,6 +333,9 @@ struct page *dma_alloc_from_contiguous(struct device *dev, int count,
 	if (!count)
 		return NULL;
 
+	retry_timeout = jiffies + msecs_to_jiffies(500);
+	retry_cnt = 0;
+
 	mask = (1 << align) - 1;
 
 	mutex_lock(&cma_mutex);
@@ -330,14 +343,22 @@ struct page *dma_alloc_from_contiguous(struct device *dev, int count,
 	for (;;) {
 		pageno = bitmap_find_next_zero_area(cma->bitmap, cma->count,
 						    start, count, mask);
-		if (pageno >= cma->count)
-			break;
+		if (pageno >= cma->count) {
+			if (start == 0 ||
+			    (time_is_before_jiffies(retry_timeout) && retry_cnt != 0))
+				break;
+			cond_resched();
+			retry_cnt++;
+			start = 0;
+			continue;
+		}
 
 		pfn = cma->base_pfn + pageno;
 		ret = alloc_contig_range(pfn, pfn + count, MIGRATE_CMA);
 		if (ret == 0) {
 			bitmap_set(cma->bitmap, pageno, count);
 			page = pfn_to_page(pfn);
+			adjust_managed_cma_page_count(page_zone(page), -count);
 			break;
 		} else if (ret != -EBUSY) {
 			break;
@@ -384,6 +405,7 @@ bool dma_release_from_contiguous(struct device *dev, struct page *pages,
 	mutex_lock(&cma_mutex);
 	bitmap_clear(cma->bitmap, pfn - cma->base_pfn, count);
 	free_contig_range(pfn, count);
+	adjust_managed_cma_page_count(page_zone(pages), count);
 	mutex_unlock(&cma_mutex);
 
 	return true;

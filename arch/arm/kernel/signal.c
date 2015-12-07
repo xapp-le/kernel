@@ -558,6 +558,11 @@ static int do_signal(struct pt_regs *regs, int syscall)
 	return 0;
 }
 
+#ifdef CONFIG_OWL_DEBUG_IRQ_STACK
+void owl_debug_check_irqstack(struct pt_regs *regs);
+void owl_debug_save_irqstack(struct pt_regs *regs);
+#endif
+
 asmlinkage int
 do_work_pending(struct pt_regs *regs, unsigned int thread_flags, int syscall)
 {
@@ -569,7 +574,14 @@ do_work_pending(struct pt_regs *regs, unsigned int thread_flags, int syscall)
 				return 0;
 			local_irq_enable();
 			if (thread_flags & _TIF_SIGPENDING) {
+#ifdef CONFIG_OWL_DEBUG_IRQ_STACK
+				int restart;
+				owl_debug_check_irqstack(regs);
+				restart = do_signal(regs, syscall);
+				owl_debug_save_irqstack(regs);
+#else
 				int restart = do_signal(regs, syscall);
+#endif
 				if (unlikely(restart)) {
 					/*
 					 * Restart without handlers.

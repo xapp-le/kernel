@@ -1643,6 +1643,7 @@ static void ext4_print_free_blocks(struct inode *inode)
  * The function skips space we know is already mapped to disk blocks.
  *
  */
+static int ext4_da_writepages_trans_blocks(struct inode *inode);
 static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
 {
 	int err, blks, get_blocks_flags;
@@ -1651,7 +1652,7 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
 	unsigned max_blocks = mpd->b_size >> mpd->inode->i_blkbits;
 	loff_t disksize = EXT4_I(mpd->inode)->i_disksize;
 	handle_t *handle = NULL;
-
+	int needed_blocks;
 	/*
 	 * If the blocks are mapped already, or we couldn't accumulate
 	 * any blocks, then proceed immediately to the submission stage.
@@ -1662,7 +1663,12 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
 	     !(mpd->b_state & (1 << BH_Unwritten))))
 		goto submit_io;
 
-	handle = ext4_journal_current_handle();
+	//handle = ext4_journal_current_handle();
+	needed_blocks = ext4_da_writepages_trans_blocks(mpd->inode);
+	handle = ext4_journal_start(mpd->inode, EXT4_HT_WRITE_PAGE,needed_blocks);
+	if (IS_ERR(handle)) {
+		return;
+	}
 	BUG_ON(!handle);
 
 	/*
@@ -1742,7 +1748,10 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
 
 		/* Mark this page range as having been completed */
 		mpd->io_done = 1;
-		return;
+		if (handle) {
+			ext4_journal_stop(handle);
+		}
+		return ;
 	}
 	BUG_ON(blks == 0);
 
@@ -1770,7 +1779,10 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
 				   mpd->inode->i_ino);
 	}
 
-submit_io:
+submit_io:		
+	if (handle) {
+		ext4_journal_stop(handle);	
+	}		
 	mpage_da_submit_io(mpd, mapp);
 	mpd->io_done = 1;
 }
@@ -2434,7 +2446,7 @@ static int ext4_da_writepages(struct address_space *mapping,
 	int pages_written = 0;
 	unsigned int max_pages;
 	int range_cyclic, cycled = 1, io_done = 0;
-	int needed_blocks, ret = 0;
+	int ret = 0;
 	long desired_nr_to_write, nr_to_writebump = 0;
 	loff_t range_start = wbc->range_start;
 	struct ext4_sb_info *sbi = EXT4_SB(mapping->host->i_sb);
@@ -2529,6 +2541,7 @@ retry:
 		 * by delalloc
 		 */
 		BUG_ON(ext4_should_journal_data(inode));
+#if 0
 		needed_blocks = ext4_da_writepages_trans_blocks(inode);
 
 		/* start a new transaction*/
@@ -2542,7 +2555,7 @@ retry:
 			blk_finish_plug(&plug);
 			goto out_writepages;
 		}
-
+#endif 
 		/*
 		 * Now call write_cache_pages_da() to find the next
 		 * contiguous region of logical blocks that need
@@ -2561,9 +2574,9 @@ retry:
 		}
 		trace_ext4_da_write_pages(inode, &mpd);
 		wbc->nr_to_write -= mpd.pages_written;
-
+#if 0 
 		ext4_journal_stop(handle);
-
+#endif 
 		if ((mpd.retval == -ENOSPC) && sbi->s_journal) {
 			/* commit the transaction which would
 			 * free blocks released in the transaction
@@ -2606,7 +2619,7 @@ retry:
 		 */
 		mapping->writeback_index = done_index;
 
-out_writepages:
+//out_writepages:
 	wbc->nr_to_write -= nr_to_writebump;
 	wbc->range_start = range_start;
 	trace_ext4_da_writepages_result(inode, wbc, ret, pages_written);
@@ -2666,6 +2679,8 @@ static int ext4_da_write_begin(struct file *file, struct address_space *mapping,
 	}
 	*fsdata = (void *)0;
 	trace_ext4_da_write_begin(inode, pos, len, flags);
+//	trace_printk(" ext4_da_write_begin:: %s\n", file->f_path.dentry->d_iname);
+	
 
 	if (ext4_test_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA)) {
 		ret = ext4_da_write_inline_data_begin(mapping, inode,
@@ -4658,7 +4673,6 @@ static void ext4_wait_for_tail_page_commit(struct inode *inode)
  */
 int ext4_setattr(struct dentry *dentry, struct iattr *attr)
 {
-    loff_t oldsize;
 	struct inode *inode = dentry->d_inode;
 	int error, rc = 0;
 	int orphan = 0;

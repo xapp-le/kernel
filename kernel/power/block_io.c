@@ -11,8 +11,31 @@
 #include <linux/kernel.h>
 #include <linux/pagemap.h>
 #include <linux/swap.h>
+#include <linux/export.h>
+#include <mach/power.h>
 
 #include "power.h"
+
+/* #define USE_DRIVER_RW_INTERFACE */
+#define RESUME_DISK_FIRST_LBA 16384
+
+read_block_fn *read_block_handler;
+write_block_fn *write_block_handler;
+
+void register_swap_rw_handler(read_block_fn *read, write_block_fn *write)
+{
+	read_block_handler = read;
+	write_block_handler = write;
+}
+EXPORT_SYMBOL(register_swap_rw_handler);
+
+int __init block_io_init(void)
+{
+	read_block_handler = NULL;
+	write_block_handler = NULL;
+	return 0;
+}
+late_initcall(block_io_init);
 
 /**
  *	submit - submit BIO request.
@@ -37,7 +60,7 @@ static int submit(int rw, struct block_device *bdev, sector_t sector,
 	bio->bi_end_io = end_swap_bio_read;
 
 	if (bio_add_page(bio, page, PAGE_SIZE, 0) < PAGE_SIZE) {
-		printk(KERN_ERR "PM: Adding page to bio failed at %llu\n",
+		pr_err("PM: Adding page to bio failed at %llu\n",
 			(unsigned long long)sector);
 		bio_put(bio);
 		return -EFAULT;
@@ -64,14 +87,36 @@ static int submit(int rw, struct block_device *bdev, sector_t sector,
 
 int hib_bio_read_page(pgoff_t page_off, void *addr, struct bio **bio_chain)
 {
+#ifdef USE_DRIVER_RW_INTERFACE
+	if (read_block_handler == NULL) {
+		pr_err("PM: No swap read handler\n");
+		return -1;
+	} else {
+		read_block_handler(RESUME_DISK_FIRST_LBA + page_off * 8,
+							8, addr);
+		return 0;
+	}
+#else
 	return submit(READ, hib_resume_bdev, page_off * (PAGE_SIZE >> 9),
 			virt_to_page(addr), bio_chain);
+#endif
 }
 
 int hib_bio_write_page(pgoff_t page_off, void *addr, struct bio **bio_chain)
 {
+#ifdef USE_DRIVER_RW_INTERFACE
+	if (write_block_handler == NULL) {
+		pr_err("PM: No swap write handler\n");
+		return -1;
+	} else {
+		write_block_handler(RESUME_DISK_FIRST_LBA + page_off * 8,
+							8, addr);
+		return 0;
+	}
+#else
 	return submit(WRITE, hib_resume_bdev, page_off * (PAGE_SIZE >> 9),
 			virt_to_page(addr), bio_chain);
+#endif
 }
 
 int hib_wait_on_bio_chain(struct bio **bio_chain)
@@ -79,6 +124,10 @@ int hib_wait_on_bio_chain(struct bio **bio_chain)
 	struct bio *bio;
 	struct bio *next_bio;
 	int ret = 0;
+
+#ifdef USE_DRIVER_RW_INTERFACE
+	return 0;
+#endif
 
 	if (bio_chain == NULL)
 		return 0;

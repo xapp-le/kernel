@@ -33,6 +33,7 @@ struct regmap_irq_chip_data {
 
 	int irq;
 	int wake_count;
+	int parent_irq_no_wake;
 
 	void *status_reg_buf;
 	unsigned int *status_buf;
@@ -111,13 +112,20 @@ static void regmap_irq_sync_unlock(struct irq_data *data)
 		pm_runtime_put(map->dev);
 
 	/* If we've changed our wakeup count propagate it to the parent */
-	if (d->wake_count < 0)
-		for (i = d->wake_count; i < 0; i++)
-			irq_set_irq_wake(d->irq, 0);
-	else if (d->wake_count > 0)
-		for (i = 0; i < d->wake_count; i++)
-			irq_set_irq_wake(d->irq, 1);
-
+	/* modified by Actions :  fix unblanced irq_set_irq_wake call issue */
+	if (!d->parent_irq_no_wake) {
+		if (d->wake_count < 0)
+			for (i = d->wake_count; i < 0; i++)
+				irq_set_irq_wake(d->irq, 0);
+		else if (d->wake_count > 0)
+			for (i = 0; i < d->wake_count; i++) {
+				ret = irq_set_irq_wake(d->irq, 1);
+				if (ret && i == 0) {
+					d->parent_irq_no_wake = 1;
+					break;
+				}
+			}
+	}
 	d->wake_count = 0;
 
 	mutex_unlock(&d->lock);

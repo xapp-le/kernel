@@ -28,6 +28,7 @@
 #include <linux/syscore_ops.h>
 #include <linux/ctype.h>
 #include <linux/genhd.h>
+#include <mach/power.h>
 
 #include "power.h"
 
@@ -286,6 +287,7 @@ static int create_image(int platform_mode)
 		goto Power_up;
 
 	in_suspend = 1;
+	owl_pm_do_save();
 	save_processor_state();
 	error = swsusp_arch_suspend();
 	if (error)
@@ -293,6 +295,7 @@ static int create_image(int platform_mode)
 			error);
 	/* Restore control flow magically appears here */
 	restore_processor_state();
+	owl_pm_do_restore();
 	if (!in_suspend) {
 		events_check_enabled = false;
 		platform_leave(platform_mode);
@@ -651,6 +654,7 @@ int hibernate(void)
 
 	printk(KERN_INFO "PM: Syncing filesystems ... ");
 	sys_sync();
+	fs_drop_page_caches();
 	printk("done.\n");
 
 	error = freeze_processes();

@@ -3,6 +3,7 @@ PATCHLEVEL = 10
 SUBLEVEL = 37
 EXTRAVERSION =
 NAME = TOSSUG Baby Fish
+export LOCALVERSION=
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
@@ -192,8 +193,20 @@ SUBARCH := $(shell uname -m | sed -e s/i.86/x86/ -e s/x86_64/x86/ \
 # "make" in the configured kernel build directory always uses that.
 # Default value for CROSS_COMPILE is not to prefix executables
 # Note: Some architectures assign CROSS_COMPILE in their arch/*/Makefile
-ARCH		?= $(SUBARCH)
+export KBUILD_BUILDHOST := $(SUBARCH)
+ARCH		?= arm
+
+ifneq ($(wildcard ../prebuilts/gcc/linux-x86/arm/arm-eabi-4.6),)
+CROSS_COMPILE   ?= ../prebuilts/gcc/linux-x86/arm/arm-eabi-4.6/bin/arm-eabi-
+endif
+ifneq ($(wildcard ../prebuilts/gcc/linux-x86/arm/arm-eabi-4.7),)
+CROSS_COMPILE   ?= ../prebuilts/gcc/linux-x86/arm/arm-eabi-4.7/bin/arm-eabi-
+endif
+ifneq ($(wildcard ../prebuilts/gcc/linux-x86/arm/arm-eabi-4.8),)
+CROSS_COMPILE   ?= ../prebuilts/gcc/linux-x86/arm/arm-eabi-4.8/bin/arm-eabi-
+endif
 CROSS_COMPILE	?= $(CONFIG_CROSS_COMPILE:"%"=%)
+
 
 # Architecture as present in compile.h
 UTS_MACHINE 	:= $(ARCH)
@@ -342,11 +355,11 @@ CHECK		= sparse
 
 CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 		  -Wbitwise -Wno-return-void $(CF)
-CFLAGS_MODULE   =
-AFLAGS_MODULE   =
+CFLAGS_MODULE   = -Wall
+AFLAGS_MODULE   = -Wall
 LDFLAGS_MODULE  =
-CFLAGS_KERNEL	=
-AFLAGS_KERNEL	=
+CFLAGS_KERNEL	= -Wall
+AFLAGS_KERNEL	= -Wall
 CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage
 
 
@@ -385,11 +398,14 @@ KBUILD_LDFLAGS_MODULE := -T $(srctree)/scripts/module-common.lds
 KERNELRELEASE = $(shell cat include/config/kernel.release 2> /dev/null)
 KERNELVERSION = $(VERSION)$(if $(PATCHLEVEL),.$(PATCHLEVEL)$(if $(SUBLEVEL),.$(SUBLEVEL)))$(EXTRAVERSION)
 
+export R_CROSS_COMPILE= $(CROSS_COMPILE)
+
 export VERSION PATCHLEVEL SUBLEVEL KERNELRELEASE KERNELVERSION
 export ARCH SRCARCH CONFIG_SHELL HOSTCC HOSTCFLAGS CROSS_COMPILE AS LD CC
 export CPP AR NM STRIP OBJCOPY OBJDUMP
 export MAKE AWK GENKSYMS INSTALLKERNEL PERL UTS_MACHINE
 export HOSTCXX HOSTCXXFLAGS LDFLAGS_MODULE CHECK CHECKFLAGS
+export R_CROSS_COMPILE=$(CROSS_COMPILE)
 
 export KBUILD_CPPFLAGS NOSTDINC_FLAGS LINUXINCLUDE OBJCOPYFLAGS LDFLAGS
 export KBUILD_CFLAGS CFLAGS_KERNEL CFLAGS_MODULE CFLAGS_GCOV

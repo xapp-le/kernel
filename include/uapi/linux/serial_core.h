@@ -223,6 +223,9 @@
 /* ARC (Synopsys) on-chip UART */
 #define PORT_ARC       101
 
+/* Actions SOC UART */
+#define PORT_OWL       200
+
 /* Rocketport EXPRESS/INFINITY */
 #define PORT_RP2	102
 

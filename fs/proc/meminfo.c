@@ -16,6 +16,9 @@
 #include <asm/pgtable.h>
 #include "internal.h"
 
+/* add by actions */
+extern phys_addr_t owl_get_phy_mem_size(void);
+
 void __attribute__((weak)) arch_report_meminfo(struct seq_file *m)
 {
 }
@@ -29,6 +32,7 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	long cached;
 	unsigned long pages[NR_LRU_LISTS];
 	int lru;
+	unsigned long cma_free_pages;
 
 /*
  * display in kilobytes.
@@ -50,12 +54,15 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	for (lru = LRU_BASE; lru < NR_LRU_LISTS; lru++)
 		pages[lru] = global_page_state(NR_LRU_BASE + lru);
 
+	cma_free_pages = global_page_state(NR_FREE_CMA_PAGES);
+
 	/*
 	 * Tagged format, for easy grepping and expansion.
 	 */
 	seq_printf(m,
 		"MemTotal:       %8lu kB\n"
 		"MemFree:        %8lu kB\n"
+		"CmaFree:        %8lu kB\n"
 		"Buffers:        %8lu kB\n"
 		"Cached:         %8lu kB\n"
 		"SwapCached:     %8lu kB\n"
@@ -108,6 +115,7 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 		,
 		K(i.totalram),
 		K(i.freeram),
+		K(cma_free_pages),
 		K(i.bufferram),
 		K(cached),
 		K(total_swapcache_pages()),

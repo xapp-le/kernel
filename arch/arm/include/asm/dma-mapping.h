@@ -95,21 +95,6 @@ static inline int dma_mapping_error(struct device *dev, dma_addr_t dma_addr)
 	return dma_addr == DMA_ERROR_CODE;
 }
 
-/*
- * Dummy noncoherent implementation.  We don't provide a dma_cache_sync
- * function so drivers using this API are highlighted with build warnings.
- */
-static inline void *dma_alloc_noncoherent(struct device *dev, size_t size,
-		dma_addr_t *handle, gfp_t gfp)
-{
-	return NULL;
-}
-
-static inline void dma_free_noncoherent(struct device *dev, size_t size,
-		void *cpu_addr, dma_addr_t handle)
-{
-}
-
 extern int dma_supported(struct device *dev, u64 mask);
 
 extern int arm_dma_set_mask(struct device *dev, u64 dma_mask);
@@ -171,6 +156,33 @@ static inline void dma_free_attrs(struct device *dev, size_t size,
 
 	debug_dma_free_coherent(dev, size, cpu_addr, dma_handle);
 	ops->free(dev, size, cpu_addr, dma_handle, attrs);
+}
+
+/*
+ * Dummy noncoherent implementation.  We don't provide a dma_cache_sync
+ * function so drivers using this API are highlighted with build warnings.
+ */
+static inline void *dma_alloc_noncoherent(struct device *dev, size_t size,
+		dma_addr_t *handle, gfp_t gfp)
+{
+	/* add by actions */
+	/* 原生内核中这个API是没有实现的, 为了使ion_cma_heap能分到cached的buffer, 现在重新实现了这个API.
+	 * 原本arm dma-mapping.c中的arm_dma_alloc是不管DMA_ATTR_NON_CONSISTENT的,
+	 * 现在改为遇到DMA_ATTR_NON_CONSISTENT就分配cached, 但是atomic的分支没有改,
+	 * atomic时分配依然是uncached的(不影响ion,也没有违反这个API的定义,故不大改).
+	 * 请参考dma-mapping.c中__get_dma_pgprot的改动. */
+	DEFINE_DMA_ATTRS(attrs);
+	dma_set_attr(DMA_ATTR_NON_CONSISTENT, &attrs);
+	return dma_alloc_attrs(dev, size, handle, gfp, &attrs);
+}
+
+static inline void dma_free_noncoherent(struct device *dev, size_t size,
+		void *cpu_addr, dma_addr_t handle)
+{
+	/* add by actions */
+	DEFINE_DMA_ATTRS(attrs);
+	dma_set_attr(DMA_ATTR_NON_CONSISTENT, &attrs);
+	return dma_free_attrs(dev, size, cpu_addr, handle, &attrs);
 }
 
 /**
