@@ -1892,7 +1892,7 @@ static int wait_for_avail(struct snd_pcm_substream *substream,
 		}
 		wait_time = msecs_to_jiffies(wait_time * 1000);
 	}
-
+	wait_time = 50;
 	for (;;) {
 		if (signal_pending(current)) {
 			err = -ERESTARTSYS;
@@ -1966,8 +1966,17 @@ static int snd_pcm_lib_write_transfer(struct snd_pcm_substream *substream,
 			return err;
 	} else {
 		char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, hwoff);
+#ifdef CONFIG_SND_UBUNTU
+        if(runtime->format == SNDRV_PCM_FORMAT_S16_LE){
+            memcpy(hwbuf, buf, frames_to_bytes(runtime, frames));
+        }else{
+		  if (copy_from_user(hwbuf, buf, frames_to_bytes(runtime, frames)))
+			return -EFAULT;
+		}	
+#else
 		if (copy_from_user(hwbuf, buf, frames_to_bytes(runtime, frames)))
 			return -EFAULT;
+#endif
 	}
 	return 0;
 }
@@ -2102,8 +2111,8 @@ snd_pcm_sframes_t snd_pcm_lib_write(struct snd_pcm_substream *substream, const v
 	if (err < 0)
 		return err;
 	runtime = substream->runtime;
-	nonblock = !!(substream->f_flags & O_NONBLOCK);
-
+	//nonblock = !!(substream->f_flags & O_NONBLOCK);
+    nonblock = 0;
 	if (runtime->access != SNDRV_PCM_ACCESS_RW_INTERLEAVED &&
 	    runtime->channels > 1)
 		return -EINVAL;
@@ -2188,8 +2197,18 @@ static int snd_pcm_lib_read_transfer(struct snd_pcm_substream *substream,
 			return err;
 	} else {
 		char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, hwoff);
+#ifdef CONFIG_SND_UBUNTU
+        if(runtime->format == SNDRV_PCM_FORMAT_S16_LE){
+            memcpy(buf, hwbuf, frames_to_bytes(runtime, frames));
+        }else{
+            if (copy_to_user(buf, hwbuf, frames_to_bytes(runtime, frames)))
+                return -EFAULT;
+        }
+
+#else
 		if (copy_to_user(buf, hwbuf, frames_to_bytes(runtime, frames)))
 			return -EFAULT;
+#endif
 	}
 	return 0;
 }

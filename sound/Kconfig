@@ -132,3 +132,12 @@ config AC97_BUS
 	  sound subsystem and other function drivers completely unrelated to
 	  sound although they're sharing the AC97 bus. Concerned drivers
 	  should "select" this.
+	  
+config SND_UBUNTU
+	tristate "support for ubuntu."
+	help
+	  Say Y or M to ubuntu support.  This
+	  feature support ubuntu related.
+
+	  Many programs require this feature, so you should enable it
+	  unless you know what you're doing.

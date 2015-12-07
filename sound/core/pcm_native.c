@@ -2642,8 +2642,54 @@ static int snd_pcm_playback_ioctl1(struct file *file,
 			return -EFAULT;
 		if (copy_from_user(&xferi, _xferi, sizeof(xferi)))
 			return -EFAULT;
+#ifdef CONFIG_SND_UBUNTU
+        //when pcm data is 16bits
+        if(runtime->format == SNDRV_PCM_FORMAT_S16_LE){
+            unsigned int len, i;
+		    int *p = NULL;
+		    short *p_buf = NULL;
+            len = frames_to_bytes(runtime, xferi.frames);
+    	    p = kmalloc(2*len, GFP_KERNEL);
+    	    if (!p)
+        	    return -ENOMEM;
+    	    p_buf = kmalloc(len, GFP_KERNEL);
+    	    if (!p_buf)
+        	    return -ENOMEM;
+            if (copy_from_user((char *)p_buf, xferi.buf, len)){
+                printk(KERN_ERR"%s,%d\n", __func__, __LINE__);
+                return -EFAULT;
+            }
+            for(i=0; i<(len/2); i++) {
+                p[i] = ((int)p_buf[i]) << 16;
+            }
+            result = snd_pcm_lib_write(substream, p, 2*(xferi.frames));
+            if(result > 0){
+		    __put_user(result/2, &_xferi->result);
+            if((2*xferi.frames) != result){
+                    printk(KERN_ERR"%s,%d, frames:%d, result:%d\n", __func__, __LINE__,xferi.frames, result);
+                    __put_user(xferi.frames, &_xferi->result);
+                }
+            }
+            else
+                __put_user(result, &_xferi->result);
+		    if(NULL != p_buf){
+        	    kfree(p_buf);
+        	    p_buf = NULL;
+    	    }
+    	    if(NULL != p){
+        	    kfree(p);
+        	    p = NULL;
+    	    }
+        }else{
+            result = snd_pcm_lib_write(substream, xferi.buf, xferi.frames);
+		    __put_user(result, &_xferi->result);            
+        }
+		if(result < 0)
+            printk(KERN_ERR"%s,%d,result:%d\n", __func__, __LINE__, result);
+#else
 		result = snd_pcm_lib_write(substream, xferi.buf, xferi.frames);
 		__put_user(result, &_xferi->result);
+#endif
 		return result < 0 ? result : 0;
 	}
 	case SNDRV_PCM_IOCTL_WRITEN_FRAMES:
@@ -2722,8 +2768,52 @@ static int snd_pcm_capture_ioctl1(struct file *file,
 			return -EFAULT;
 		if (copy_from_user(&xferi, _xferi, sizeof(xferi)))
 			return -EFAULT;
+#ifdef CONFIG_SND_UBUNTU
+        //when pcm data is 16bits
+        if(runtime->format == SNDRV_PCM_FORMAT_S16_LE){
+            unsigned int len, i;
+            int *p = NULL;
+            short *p_buf = NULL;
+            len = frames_to_bytes(runtime, xferi.frames);
+            p = kmalloc(2*len, GFP_KERNEL);
+            if (!p)
+                return -ENOMEM;
+            p_buf = kmalloc(len, GFP_KERNEL);
+            if (!p_buf)
+                return -ENOMEM;
+            result = snd_pcm_lib_read(substream, p, 2*(xferi.frames));
+            __put_user(result/2, &_xferi->result);
+            for(i=0; i<(len/2); i++) {
+                p_buf[i] = (short)(p[i] >> 16);
+            }
+            if (copy_to_user(xferi.buf, (char *)p_buf, len)){
+                printk(KERN_ERR"%s,%d\n", __func__, __LINE__);
+                return -EFAULT;
+            }
+            if(NULL != p_buf){
+                kfree(p_buf);
+                p_buf = NULL;
+            }
+            if(NULL != p){
+                kfree(p);
+                p = NULL;
+            }
+            //result = snd_pcm_lib_read(substream, xferi.buf, xferi.frames);
+            //__put_user(result, &_xferi->result);
+            if(result < 0){
+                if(result == -EFAULT)
+                    printk(KERN_ERR"%s,%d,result:EFAULT\n", __func__, __LINE__);
+                else
+                    printk(KERN_ERR"%s,%d,result:%d\n", __func__, __LINE__, result);
+              }
+        }else{
+            result = snd_pcm_lib_read(substream, xferi.buf, xferi.frames);
+            __put_user(result, &_xferi->result);
+        }
+#else
 		result = snd_pcm_lib_read(substream, xferi.buf, xferi.frames);
 		__put_user(result, &_xferi->result);
+#endif
 		return result < 0 ? result : 0;
 	}
 	case SNDRV_PCM_IOCTL_READN_FRAMES:
@@ -3314,6 +3404,7 @@ static int snd_pcm_mmap(struct file *file, struct vm_area_struct *area)
 			return -ENXIO;
 		return snd_pcm_mmap_control(substream, file, area);
 	default:
+        printk(KERN_ERR"%s,default\n", __func__);
 		return snd_pcm_mmap_data(substream, file, area);
 	}
 	return 0;
