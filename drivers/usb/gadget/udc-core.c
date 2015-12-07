@@ -101,11 +101,30 @@ EXPORT_SYMBOL_GPL(usb_gadget_unmap_request);
 
 /* ------------------------------------------------------------------------- */
 
+static void usb_gadget_state_work(struct work_struct *work)
+{
+	struct usb_gadget	*gadget = work_to_gadget(work);
+	struct usb_udc		*udc = NULL;
+
+	mutex_lock(&udc_lock);
+	list_for_each_entry(udc, &udc_list, list)
+		if (udc->gadget == gadget)
+			goto found;
+	mutex_unlock(&udc_lock);
+
+	return;
+
+found:
+	mutex_unlock(&udc_lock);
+
+	sysfs_notify(&udc->dev.kobj, NULL, "state");
+}
 void usb_gadget_set_state(struct usb_gadget *gadget,
 		enum usb_device_state state)
 {
 	gadget->state = state;
-	sysfs_notify(&gadget->dev.kobj, NULL, "state");
+	//sysfs_notify(&gadget->dev.kobj, NULL, "state");
+	schedule_work(&gadget->work);
 }
 EXPORT_SYMBOL_GPL(usb_gadget_set_state);
 
@@ -192,6 +211,7 @@ int usb_add_gadget_udc_release(struct device *parent, struct usb_gadget *gadget,
 		goto err1;
 
 	dev_set_name(&gadget->dev, "gadget");
+	INIT_WORK(&gadget->work, usb_gadget_state_work);
 	gadget->dev.parent = parent;
 
 	dma_set_coherent_mask(&gadget->dev, parent->coherent_dma_mask);
@@ -309,6 +329,7 @@ found:
 		usb_gadget_remove_driver(udc);
 
 	kobject_uevent(&udc->dev.kobj, KOBJ_REMOVE);
+	flush_work(&gadget->work);
 	device_unregister(&udc->dev);
 	device_unregister(&gadget->dev);
 }
@@ -344,7 +365,7 @@ static int udc_bind_to_driver(struct usb_udc *udc, struct usb_gadget_driver *dri
 	 *
 	 * usb_gadget_connect(udc->gadget);
 	 */
-
+		
 	kobject_uevent(&udc->dev.kobj, KOBJ_CHANGE);
 	return 0;
 err1:

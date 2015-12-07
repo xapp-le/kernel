@@ -488,6 +488,10 @@ config USB_DUMMY_HCD
 
 endmenu
 
+# Selected by UDC drivers that support high-speed operation.
+config USB_GADGET_DUALSPEED
+	bool
+
 #
 # USB Gadget Drivers
 #
@@ -819,7 +823,7 @@ config USB_G_PRINTER
 	  which includes sample code for accessing the device file.
 
 config USB_G_ANDROID
-	boolean "Android Composite Gadget"
+	tristate "Android Composite Gadget"
 	select USB_F_ACM
 	select USB_LIBCOMPOSITE
 	select USB_U_SERIAL
@@ -829,7 +833,7 @@ config USB_G_ANDROID
 	  and rndis.
 	  Each function can be configured and enabled/disabled
 	  dynamically from userspace through a sysfs interface.
-
+  
 config USB_ANDROID_RNDIS_DWORD_ALIGNED
 	boolean "Use double word aligned"
 	depends on USB_G_ANDROID
@@ -990,4 +994,13 @@ config USB_G_WEBCAM
 
 endchoice
 
+config USB_ACTIONS_ADFUSERVER
+	tristate "Actions Adfuserver Gadget"
+	depends on ARCH_OWL 
+	select USB_LIBCOMPOSITE	
+	help
+	  The Actions Adfuserver Gadget is use for actions' board
+	  to upgrade firmware. It must work with actions' dwc3 
+	  driver.
+	  
 endif # USB_GADGET

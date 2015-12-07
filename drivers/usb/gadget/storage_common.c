@@ -522,6 +522,24 @@ static int fsg_lun_fsync_sub(struct fsg_lun *curlun)
 
 	if (curlun->ro || !filp)
 		return 0;
+#ifdef DEBUG_TIME_OF_VFS_OP
+	if(debug_vfs_op_time) {
+		struct timeval tv_start;
+		struct timeval tv_end;
+		int ret;
+
+		do_gettimeofday(&tv_start);
+
+		ret = vfs_fsync(filp, 1);
+
+		do_gettimeofday(&tv_end);
+		calculate_time_of_vfs_op(&tv_start, &tv_end);
+
+		return ret;
+	}
+	else
+		
+#endif			
 	return vfs_fsync(filp, 1);
 }
 
@@ -650,12 +668,12 @@ static ssize_t fsg_store_file(struct device *dev, struct device_attribute *attr,
 	struct fsg_lun	*curlun = fsg_lun_from_dev(dev);
 	struct rw_semaphore	*filesem = dev_get_drvdata(dev);
 	int		rc = 0;
-
+#if 0
 	if (curlun->prevent_medium_removal && fsg_lun_is_open(curlun)) {
 		LDBG(curlun, "eject attempt prevented\n");
 		return -EBUSY;				/* "Door is locked" */
 	}
-
+#endif
 	/* Remove a trailing newline */
 	if (count > 0 && buf[count-1] == '\n')
 		((char *) buf)[count-1] = 0;		/* Ugh! */

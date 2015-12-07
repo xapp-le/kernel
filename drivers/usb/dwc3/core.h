@@ -158,6 +158,11 @@
 #define DWC3_OEVTEN		0xcc0C
 #define DWC3_OSTS		0xcc10
 
+#define DWC3_BACKDOOR   0xcd4c
+
+#define DWC3_FLADJ_30MHZ_MASK	((0x3f) << 10)
+#define DWC3_FLADJ_30MHZ(n)	((n) << 10)
+
 /* Bit fields */
 
 /* Global Configuration Register */

@@ -120,7 +120,13 @@ static int dwc3_ep0_start_trans(struct dwc3 *dwc, u8 epnum, dma_addr_t buf_dma,
 
 	return 0;
 }
+static int no_delay_status = 0;
+void set_no_delay_status(int flag)
+{
+	no_delay_status = flag;
+}
 
+EXPORT_SYMBOL(set_no_delay_status);
 static int __dwc3_gadget_ep0_queue(struct dwc3_ep *dep,
 		struct dwc3_request *req)
 {
@@ -168,7 +174,7 @@ static int __dwc3_gadget_ep0_queue(struct dwc3_ep *dep,
 
 		direction = !dwc->ep0_expect_in;
 		dwc->delayed_status = false;
-
+		no_delay_status = 0;
 		if (dwc->ep0state == EP0_STATUS_PHASE)
 			__dwc3_ep0_do_control_status(dwc, dwc->eps[direction]);
 		else
@@ -176,8 +182,11 @@ static int __dwc3_gadget_ep0_queue(struct dwc3_ep *dep,
 
 		return 0;
 	}
-
-	/*
+	 else {
+		if(no_delay_status == 1)
+			dev_dbg(dwc->dev, "---- dwc3_ep0_inspect_setup is behind usb_composite_setup_continue !!\n");
+	}
+    /*
 	 * Unfortunately we have uncovered a limitation wrt the Data Phase.
 	 *
 	 * Section 9.4 says we can wait for the XferNotReady(DATA) event to
@@ -779,6 +788,10 @@ static void dwc3_ep0_complete_data(struct dwc3 *dwc,
 	dwc->ep0_next_event = DWC3_EP0_NRDY_STATUS;
 
 	r = next_request(&ep0->request_list);
+	if(!r){
+		WARN_ON_ONCE(1);
+		return;		
+	}
 	ur = &r->request;
 
 	trb = dwc->ep0_trb;
@@ -1029,11 +1042,19 @@ static void dwc3_ep0_xfernotready(struct dwc3 *dwc,
 		dwc->ep0state = EP0_STATUS_PHASE;
 
 		if (dwc->delayed_status) {
-			WARN_ON_ONCE(event->endpoint_number != 1);
-			dev_vdbg(dwc->dev, "Mass Storage delayed status\n");
-			return;
+			//WARN_ON_ONCE(event->endpoint_number != 1);
+			//dev_vdbg(dwc->dev, "Mass Storage delayed status\n");
+			//return;
+			if (no_delay_status == 0) {
+				WARN_ON_ONCE(event->endpoint_number != 1);
+				dev_vdbg(dwc->dev, "Mass Storage delayed status\n");
+				return;
+			}
 		}
-
+		if(no_delay_status == 1) {
+			no_delay_status = 0;
+			dwc->delayed_status = false;
+		} 
 		dwc3_ep0_do_control_status(dwc, event);
 	}
 }

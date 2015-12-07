@@ -20,14 +20,18 @@
 
 #include <linux/usb/composite.h>
 #include <asm/unaligned.h>
-
+#include <linux/kallsyms.h>
 /*
  * The code in this file is utility code, used to build a gadget driver
  * from one or more "function" drivers, one or more "configuration"
  * objects, and a "usb_composite_driver" by gluing them together along
  * with the relevant device-wide data.
  */
-
+#ifndef CONFIG_USB_GADGET_VBUS_DRAW
+#define CONFIG_USB_GADGET_VBUS_DRAW 400
+#endif
+typedef void (*FUNX)(int);
+FUNX set_delaystatus_flag;
 static struct usb_gadget_strings **get_containers_gs(
 		struct usb_gadget_string_container *uc)
 {
@@ -859,6 +863,7 @@ void usb_remove_config(struct usb_composite_dev *cdev,
 
 	unbind_config(cdev, config);
 }
+EXPORT_SYMBOL(usb_remove_config);
 
 /*-------------------------------------------------------------------------*/
 
@@ -1833,6 +1838,9 @@ void usb_composite_setup_continue(struct usb_composite_dev *cdev)
 	} else if (--cdev->delayed_status == 0) {
 		DBG(cdev, "%s: Completing delayed status\n", __func__);
 		req->length = 0;
+        	set_delaystatus_flag = (FUNX)kallsyms_lookup_name("set_no_delay_status");
+              if (set_delaystatus_flag)
+                       set_delaystatus_flag(1);   /* make sure the usb_ep_queue have done really */
 		value = usb_ep_queue(cdev->gadget->ep0, req, GFP_ATOMIC);
 		if (value < 0) {
 			DBG(cdev, "ep_queue --> %d\n", value);
