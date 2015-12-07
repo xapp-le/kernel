@@ -74,7 +74,8 @@ obj-$(CONFIG_ARM_SA1100_CPUFREQ)	+= sa1100-cpufreq.o
 obj-$(CONFIG_ARM_SA1110_CPUFREQ)	+= sa1110-cpufreq.o
 obj-$(CONFIG_ARM_SPEAR_CPUFREQ)		+= spear-cpufreq.o
 obj-$(CONFIG_ARCH_TEGRA)		+= tegra-cpufreq.o
-
+obj-$(CONFIG_ARM_OWL_CPUFREQ)		+= owl-cpufreq-common.o
+obj-$(CONFIG_ARM_OWL_CPUFREQ)		+= s500-cpufreq.o
 ##################################################################################
 # PowerPC platform drivers
 obj-$(CONFIG_CPU_FREQ_CBE)		+= ppc-cbe-cpufreq.o
