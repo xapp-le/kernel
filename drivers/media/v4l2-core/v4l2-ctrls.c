@@ -734,6 +734,11 @@ const char *v4l2_ctrl_get_name(u32 id)
 	case V4L2_CID_AUTO_FOCUS_STOP:		return "Auto Focus, Stop";
 	case V4L2_CID_AUTO_FOCUS_STATUS:	return "Auto Focus, Status";
 	case V4L2_CID_AUTO_FOCUS_RANGE:		return "Auto Focus, Range";
+	case V4L2_CID_EXPOSURE_COMP:		return "Exposure Compensation";
+	case V4L2_CID_AF_MODE:		return "auto focus mode";
+	case V4L2_CID_AF_STATUS:		return "focus status";
+	case V4L2_CID_AF_REGION:		return "zone focus region";
+	case V4L2_CID_MIRRORFLIP:		return "set flip and mirror";
 
 	/* FM Radio Modulator control */
 	/* Keep the order of the 'case's the same as in videodev2.h! */
@@ -1235,6 +1240,8 @@ static void cur_to_new(struct v4l2_ctrl *ctrl)
 	}
 }
 
+#if 0
+
 /* Return non-zero if one or more of the controls in the cluster has a new
    value that differs from the current value. */
 static int cluster_changed(struct v4l2_ctrl *master)
@@ -1265,7 +1272,7 @@ static int cluster_changed(struct v4l2_ctrl *master)
 	}
 	return diff;
 }
-
+#endif
 /* Control range checking */
 static int check_range(enum v4l2_ctrl_type type,
 		s32 min, s32 max, u32 step, s32 def)
@@ -2502,7 +2509,9 @@ static int try_or_set_cluster(struct v4l2_fh *fh, struct v4l2_ctrl *master,
 	ret = call_op(master, try_ctrl);
 
 	/* Don't set if there is no change */
-	if (ret || !set || !cluster_changed(master))
+	//if (ret || !set || !cluster_changed(master))
+	/* always set if there is no change */
+	if (ret || !set)
 		return ret;
 	ret = call_op(master, s_ctrl);
 	if (ret)

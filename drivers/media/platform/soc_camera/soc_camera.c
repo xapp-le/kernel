@@ -1065,6 +1065,19 @@ static int soc_camera_s_register(struct file *file, void *fh,
 }
 #endif
 
+static long soc_camera_vidioc_default(struct file *file, void *fh, bool valid_prio,
+               unsigned int cmd, void *arg)
+{
+    struct soc_camera_device *icd = file->private_data;
+    struct v4l2_subdev *sd = soc_camera_to_subdev(icd);
+
+    if(sd->ops->core && sd->ops->core->ioctl) {
+        return sd->ops->core->ioctl(sd, cmd, arg);
+    } else {
+        return -ENOTTY;
+    }
+}
+
 static int soc_camera_probe(struct soc_camera_device *icd);
 
 /* So far this function cannot fail */
@@ -1500,6 +1513,7 @@ static const struct v4l2_ioctl_ops soc_camera_ioctl_ops = {
 	.vidioc_g_register	 = soc_camera_g_register,
 	.vidioc_s_register	 = soc_camera_s_register,
 #endif
+	.vidioc_default      = soc_camera_vidioc_default,
 };
 
 static int video_dev_create(struct soc_camera_device *icd)
@@ -1533,11 +1547,13 @@ static int soc_camera_video_start(struct soc_camera_device *icd)
 {
 	const struct device_type *type = icd->vdev->dev.type;
 	int ret;
-
+	struct soc_camera_desc *sdesc = to_soc_camera_desc(icd);
+	struct soc_camera_subdev_desc *ssdd = &sdesc->subdev_desc;
+	struct module_info *info = ssdd->drv_priv;
 	if (!icd->parent)
 		return -ENODEV;
 
-	ret = video_register_device(icd->vdev, VFL_TYPE_GRABBER, -1);
+	ret = video_register_device(icd->vdev, VFL_TYPE_GRABBER,info->video_devnum);
 	if (ret < 0) {
 		dev_err(icd->pdev, "video_register_device failed: %d\n", ret);
 		return ret;

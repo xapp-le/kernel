@@ -111,7 +111,12 @@ static unsigned int vb2_dc_num_users(void *buf_priv)
 static void vb2_dc_prepare(void *buf_priv)
 {
 	struct vb2_dc_buf *buf = buf_priv;
-	struct sg_table *sgt = buf->dma_sgt;
+    struct sg_table *sgt;
+    
+    if(!buf) {
+        return;
+    }
+    sgt = buf->dma_sgt;
 
 	/* DMABUF exporter will flush the cache for us */
 	if (!sgt || buf->db_attach)
@@ -123,7 +128,12 @@ static void vb2_dc_prepare(void *buf_priv)
 static void vb2_dc_finish(void *buf_priv)
 {
 	struct vb2_dc_buf *buf = buf_priv;
-	struct sg_table *sgt = buf->dma_sgt;
+    struct sg_table *sgt;
+    
+    if(!buf) {
+        return;
+    }
+	sgt = buf->dma_sgt;
 
 	/* DMABUF exporter will flush the cache for us */
 	if (!sgt || buf->db_attach)

@@ -31,11 +31,16 @@
 				"<laurent.pinchart@ideasonboard.com>"
 #define DRIVER_DESC		"USB Video Class driver"
 
+#define DUMP_DEVINFO   1
 unsigned int uvc_clock_param = CLOCK_MONOTONIC;
 unsigned int uvc_no_drop_param;
 static unsigned int uvc_quirks_param = -1;
-unsigned int uvc_trace_param;
+/*added for one frame split to two parts, or one frame with err data problems,ActionsCode(author:liyuan, change_code)*/
+unsigned int uvc_trace_param = UVC_TRACE_FRAME_ERR;
 unsigned int uvc_timeout_param = UVC_CTRL_STREAMING_TIMEOUT;
+#ifdef CONFIG_ASOC_CAMERA
+static int uvc_video_device_node_number = -1;
+#endif
 
 /* ------------------------------------------------------------------------
  * Video formats
@@ -1661,6 +1666,9 @@ static void uvc_release(struct video_device *vdev)
 		uvc_delete(dev);
 }
 
+//#ifdef CONFIG_ASOC_CAMERA
+extern void uvc_free_urb_buffers(struct uvc_streaming *stream);
+//#endif
 /*
  * Unregister the video devices.
  */
@@ -1683,6 +1691,9 @@ static void uvc_unregister_video(struct uvc_device *dev)
 		stream->vdev = NULL;
 
 		uvc_debugfs_cleanup_stream(stream);
+//#ifdef CONFIG_ASOC_CAMERA
+		uvc_free_urb_buffers(stream);
+//#endif		
 	}
 
 	/* Decrement the stream count and call uvc_delete explicitly if there
@@ -1690,6 +1701,50 @@ static void uvc_unregister_video(struct uvc_device *dev)
 	 */
 	if (atomic_dec_and_test(&dev->nstreams))
 		uvc_delete(dev);
+}
+
+/**
+ * BUGFIX: Add specific usbcameras dropframes demand support .
+ *ActionsCode(author:liyuan, change_code)
+ */
+static struct uvc_dropframes dev_dropframes[] = {
+	/*Webcam C170*/
+	{ 
+	  .idVendor		    = 0x046d,
+	  .idProduct		    = 0x082b,
+	  .drop_nframes_needed      = 6     },
+	/*ARKMICRO USB2.0 PC CAMERA , M2200*/
+	{ 
+	  .idVendor		    = 0x18ec,
+	  .idProduct		    = 0x3399,
+	  .drop_nframes_needed      =  18   }
+};
+static void get_dropframesnum(struct uvc_streaming *stream){
+	struct usb_interface *intf = stream->intf;
+	struct usb_device *udev = interface_to_usbdev(intf);
+	__u16 cur_idVendor = le16_to_cpu(udev->descriptor.idVendor);
+	__u16 cur_idProduct = le16_to_cpu(udev->descriptor.idProduct);
+	int len = sizeof(dev_dropframes) / sizeof(struct uvc_dropframes);
+	int i =-1;
+#if DUMP_DEVINFO
+	printk(KERN_ERR "## idVendor:0x%04x\n", le16_to_cpu(udev->descriptor.idVendor));
+	printk(KERN_ERR "## idProduct:0x%04x\n", le16_to_cpu(udev->descriptor.idProduct));
+	printk(KERN_ERR "## bInterfaceClass:0x%x\n", intf->cur_altsetting->desc.bInterfaceClass);
+	printk(KERN_ERR "## bInterfaceSubClass:0x%x\n", intf->cur_altsetting->desc.bInterfaceSubClass);
+	printk(KERN_ERR "## bInterfaceProtocol:0x%x\n", intf->cur_altsetting->desc.bInterfaceProtocol);
+#endif
+	for(i=0; i<len; i++){
+		if(cur_idVendor ==dev_dropframes[i].idVendor &&
+	           cur_idProduct==dev_dropframes[i].idProduct)
+	           break;
+	}
+
+	if(i>=0 && i<len){
+		stream->uvc_drop_nframes = dev_dropframes[i].drop_nframes_needed;
+	}else{
+		stream->uvc_drop_nframes = 0;
+	}
+	uvc_trace(UVC_TRACE_FRAME_ERR, "drop_frames_num %d\n", stream->uvc_drop_nframes);
 }
 
 static int uvc_register_video(struct uvc_device *dev,
@@ -1737,7 +1792,11 @@ static int uvc_register_video(struct uvc_device *dev,
 	stream->vdev = vdev;
 	video_set_drvdata(vdev, stream);
 
+#ifdef CONFIG_ASOC_CAMERA
+	ret = video_register_device(vdev, VFL_TYPE_GRABBER, uvc_video_device_node_number);
+#else
 	ret = video_register_device(vdev, VFL_TYPE_GRABBER, -1);
+#endif
 	if (ret < 0) {
 		uvc_printk(KERN_ERR, "Failed to register video device (%d).\n",
 			   ret);
@@ -1745,10 +1804,14 @@ static int uvc_register_video(struct uvc_device *dev,
 		video_device_release(vdev);
 		return ret;
 	}
-
-	if (stream->type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
+	/**
+ 	* BUGFIX: Add specific usbcamera dropframes demand support .
+ 	*ActionsCode(author:liyuan, change_code)
+ 	*/
+	if (stream->type == V4L2_BUF_TYPE_VIDEO_CAPTURE){
 		stream->chain->caps |= V4L2_CAP_VIDEO_CAPTURE;
-	else
+		get_dropframesnum(stream);
+	}else
 		stream->chain->caps |= V4L2_CAP_VIDEO_OUTPUT;
 
 	atomic_inc(&dev->nstreams);
@@ -2041,7 +2104,10 @@ module_param_named(trace, uvc_trace_param, uint, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(trace, "Trace level bitmask");
 module_param_named(timeout, uvc_timeout_param, uint, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(timeout, "Streaming control requests timeout");
-
+#ifdef CONFIG_ASOC_CAMERA
+module_param_named(video_device_node, uvc_video_device_node_number, int, S_IRUGO|S_IWUSR);
+MODULE_PARM_DESC(video_device_node, "Video device node number");
+#endif
 /* ------------------------------------------------------------------------
  * Driver initialization and cleanup
  */

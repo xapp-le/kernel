@@ -936,6 +936,8 @@ static void __fill_vb2_buffer(struct vb2_buffer *vb, const struct v4l2_buffer *b
 		if (b->memory == V4L2_MEMORY_USERPTR) {
 			v4l2_planes[0].m.userptr = b->m.userptr;
 			v4l2_planes[0].length = b->length;
+			//vb->v4l2_planes[0].m.userptr = b->m.userptr;
+			//vb->v4l2_planes[0].length = b->length;
 		}
 
 		if (b->memory == V4L2_MEMORY_DMABUF) {
