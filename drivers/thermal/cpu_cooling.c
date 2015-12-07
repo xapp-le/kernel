@@ -60,6 +60,9 @@ static unsigned int cpufreq_dev_count;
 #define NOTIFY_INVALID NULL
 static struct cpufreq_cooling_device *notify_device;
 
+/*Head of the blocking notifier chain to inform about frequency clamping*/
+static BLOCKING_NOTIFIER_HEAD(cputherm_state_notifier_list);
+
 /**
  * get_idr - function to get a unique id.
  * @idr: struct idr * handle used to create a id.
@@ -147,7 +150,7 @@ static int get_property(unsigned int cpu, unsigned long input,
 	int i, j;
 	unsigned long max_level = 0, level = 0;
 	unsigned int freq = CPUFREQ_ENTRY_INVALID;
-	int descend = -1;
+	int descend = 0;//-1; //TODO:
 	struct cpufreq_frequency_table *table =
 					cpufreq_frequency_get_table(cpu);
 
@@ -166,9 +169,10 @@ static int get_property(unsigned int cpu, unsigned long input,
 		if (freq == table[i].frequency)
 			continue;
 
-		/* get the frequency order */
+		/* TODO: */
+		/* get the frequency order 
 		if (freq != CPUFREQ_ENTRY_INVALID && descend != -1)
-			descend = !!(freq > table[i].frequency);
+			descend = !!(freq > table[i].frequency); */
 
 		freq = table[i].frequency;
 		max_level++;
@@ -258,6 +262,57 @@ static unsigned int get_cpu_frequency(unsigned int cpu, unsigned long level)
 }
 
 /**
+ * cputherm_register_notifier - Register a notifier with cpu cooling interface.
+ * @nb:	struct notifier_block * with callback info.
+ * @list: integer value for which notification is needed. possible values are
+ *	CPUFREQ_COOLING_START and CPUFREQ_COOLING_STOP.
+ *
+ * This exported function registers a driver with cpu cooling layer. The driver
+ * will be notified when any cpu cooling action is called.
+ */
+int cputherm_register_notifier(struct notifier_block *nb, unsigned int list)
+{
+	int ret = 0;
+	pr_info("cputherm_register_notifier list %d\n",list);
+	switch (list) {
+	case CPUFREQ_COOLING_START:
+	case CPUFREQ_COOLING_STOP:
+		ret = blocking_notifier_chain_register(
+				&cputherm_state_notifier_list, nb);
+		break;
+	default:
+		ret = -EINVAL;
+	}
+	return ret;
+}
+EXPORT_SYMBOL(cputherm_register_notifier);
+
+/**
+ * cputherm_unregister_notifier - Un-register a notifier.
+ * @nb:	struct notifier_block * with callback info.
+ * @list: integer value for which notification is needed. values possible are
+ *	CPUFREQ_COOLING_START or CPUFREQ_COOLING_STOP.
+ *
+ * This exported function un-registers a driver with cpu cooling layer.
+ */
+int cputherm_unregister_notifier(struct notifier_block *nb, unsigned int list)
+{
+	int ret = 0;
+	pr_info("cputherm_unregister_notifier list %d\n",list);
+	switch (list) {
+	case CPUFREQ_COOLING_START:
+	case CPUFREQ_COOLING_STOP:
+		ret = blocking_notifier_chain_unregister(
+				&cputherm_state_notifier_list, nb);
+		break;
+	default:
+		ret = -EINVAL;
+	}
+	return ret;
+}
+EXPORT_SYMBOL(cputherm_unregister_notifier);
+
+/**
  * cpufreq_apply_cooling - function to apply frequency clipping.
  * @cpufreq_device: cpufreq_cooling_device pointer containing frequency
  *	clipping data.
@@ -269,10 +324,11 @@ static unsigned int get_cpu_frequency(unsigned int cpu, unsigned long level)
  * Return: 0 on success, an error code otherwise (-EINVAL in case wrong
  * cooling state).
  */
+extern int thermal_set_max_freq(unsigned int freq);
 static int cpufreq_apply_cooling(struct cpufreq_cooling_device *cpufreq_device,
 				 unsigned long cooling_state)
 {
-	unsigned int cpuid, clip_freq;
+	unsigned int event, cpuid, clip_freq;
 	struct cpumask *mask = &cpufreq_device->allowed_cpus;
 	unsigned int cpu = cpumask_any(mask);
 
@@ -287,12 +343,28 @@ static int cpufreq_apply_cooling(struct cpufreq_cooling_device *cpufreq_device,
 
 	cpufreq_device->cpufreq_state = cooling_state;
 	cpufreq_device->cpufreq_val = clip_freq;
+	
+	// pr_info("[TMU] clip_freq:%d\n", clip_freq);
+	/*TODO:hotplug will update cpu max_freq*/
+ 	//thermal_set_max_freq(clip_freq);
+	
 	notify_device = cpufreq_device;
 
-	for_each_cpu(cpuid, mask) {
+	if (cooling_state != 0) {
+		event = CPUFREQ_COOLING_START;
+		pr_info("[TMU] COOLING START\n");
+	} else {
+		event = CPUFREQ_COOLING_STOP;
+		pr_info("[TMU] COOLING STOP\n");
+	}
+
+	blocking_notifier_call_chain(&cputherm_state_notifier_list,
+						event, NULL);
+						
+ 	for_each_cpu(cpuid, mask) {
 		if (is_cpufreq_valid(cpuid))
 			cpufreq_update_policy(cpuid);
-	}
+	} 
 
 	notify_device = NOTIFY_INVALID;
 
