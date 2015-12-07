@@ -138,6 +138,28 @@ config USB_USBNET
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called usbnet.
+	  
+	  
+config USB_NET_ASIX
+	tristate "ASIX  Based USB 2.0 Ethernet Adapters"
+	default m
+	help
+	  This option adds support for ASIX  based USB 2.0
+	  10/100 Ethernet adapters.
+
+config USB_NET_SR9700
+	tristate "SR9700  Based USB 2.0 Ethernet Adapters"
+	default m
+	help
+	  This option adds support for SR9700  based USB 2.0
+	  10/100 Ethernet adapters.
+	  
+config USB_NET_SR9800
+	tristate "SR9800  Based USB 2.0 Ethernet Adapters"	
+	default m
+	help
+	  This option adds support for SR9800  based USB 2.0
+	  10/100 Ethernet adapters.
 
 config USB_NET_AX8817X
 	tristate "ASIX AX88xxx Based USB 2.0 Ethernet Adapters"

@@ -34,4 +34,10 @@ obj-$(CONFIG_USB_NET_CDC_NCM)	+= cdc_ncm.o
 obj-$(CONFIG_USB_VL600)		+= lg-vl600.o
 obj-$(CONFIG_USB_NET_QMI_WWAN)	+= qmi_wwan.o
 obj-$(CONFIG_USB_NET_CDC_MBIM)	+= cdc_mbim.o
+obj-$(CONFIG_USB_NET_ASIX)	+= asix.o
+obj-$(CONFIG_USB_NET_SR9700)	+= sr9700.o
+obj-$(CONFIG_USB_NET_SR9800)	+= sr9800.o
+
+
+
 
