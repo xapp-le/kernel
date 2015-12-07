@@ -114,3 +114,9 @@ int ath_deinit(void);
 int h5_init(void);
 int h5_deinit(void);
 #endif
+//Realtek_add_start
+#ifdef CONFIG_BT_HCIUART_RTKH5
+int rtk_h5_init(void);
+int rtk_h5_deinit(void);
+#endif
+//Realtek_add_end
