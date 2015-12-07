@@ -86,7 +86,7 @@
 #define SDMMC_TMOUT_DATA_MSK		0xFFFFFF00
 #define SDMMC_TMOUT_RESP(n)		((n) & 0xFF)
 #define SDMMC_TMOUT_RESP_MSK		0xFF
-/* card-type register defines */
+/* card_type register defines */
 #define SDMMC_CTYPE_8BIT		BIT(16)
 #define SDMMC_CTYPE_4BIT		BIT(0)
 #define SDMMC_CTYPE_1BIT		0

@@ -17,6 +17,7 @@
 #include <linux/idr.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
+#include <linux/of_device.h>
 #include <linux/pagemap.h>
 #include <linux/export.h>
 #include <linux/leds.h>
@@ -26,6 +27,7 @@
 #include <linux/mmc/host.h>
 #include <linux/mmc/card.h>
 #include <linux/mmc/slot-gpio.h>
+#include <mach/bootdev.h>
 
 #include "core.h"
 #include "host.h"
@@ -428,6 +430,9 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 {
 	int err;
 	struct mmc_host *host;
+	int boot_dev, host_id;
+	const __be32 *addr;
+	struct device_node *dn = dev->of_node;
 
 	host = kzalloc(sizeof(struct mmc_host) + extra, GFP_KERNEL);
 	if (!host)
@@ -436,14 +441,31 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 	/* scanning will be enabled when we're ready */
 	host->rescan_disable = 1;
 	idr_preload(GFP_KERNEL);
+	
 	spin_lock(&mmc_host_lock);
-	err = idr_alloc(&mmc_host_idr, host, 0, 0, GFP_NOWAIT);
+	
+	
+	addr = of_get_property(dn, "reg", &host_id);
+	if (!addr || (host_id < sizeof(int)))
+		return NULL;
+	
+	host_id = (int)((be32_to_cpu(*addr) - 0xB0230000) >> 14);
+	boot_dev = owl_get_boot_dev();
+	
+	if(boot_dev > 0 && (boot_dev - OWL_BOOTDEV_SD0 == host_id)){
+		err = idr_alloc(&mmc_host_idr, host, 0, 0, GFP_NOWAIT);
+	} else {
+		err = idr_alloc(&mmc_host_idr, host, 1, 0, GFP_NOWAIT);
+	}
+	
 	if (err >= 0)
 		host->index = err;
 	spin_unlock(&mmc_host_lock);
 	idr_preload_end();
 	if (err < 0)
 		goto free;
+		
+	printk("## host_id: %d boot_dev %x host->index: %d\n", host_id, boot_dev, host->index);	
 
 	dev_set_name(&host->class_dev, "mmc%d", host->index);
 

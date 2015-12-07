@@ -831,6 +831,9 @@ int mmc_sd_setup_card(struct mmc_host *host, struct mmc_card *card,
 		/* Erase init depends on CSD and SSR */
 		mmc_init_erase(card);
 
+		//fix bug cmd 6 crc7 error
+		// we must set 2M high clk
+		 mmc_set_clock(host, 2000000);
 		/*
 		 * Fetch switch information from card.
 		 */
@@ -1209,10 +1212,22 @@ int mmc_attach_sd(struct mmc_host *host)
 
 	BUG_ON(!host);
 	WARN_ON(!host->claimed);
+	// switch pin :only cmd and clk , uart tx rx
+	if(host->ops->switch_uart_pinctr(host)){
+		printk("Err:switch uart pin:%s\n",__FUNCTION__);
+		err = -1;
+		return err;
+	}
 
 	err = mmc_send_app_op_cond(host, 0, &ocr);
 	if (err)
 		return err;
+	// switch pin : clk cmd d0-d3
+	if(host->ops->switch_sd_pinctr(host)){
+		printk("Err:switch sd pin:%s\n",__FUNCTION__);
+		err = -1;
+		return err;
+	}
 
 	mmc_sd_attach_bus_ops(host);
 	if (host->ocr_avail_sd)
@@ -1279,6 +1294,11 @@ int mmc_attach_sd(struct mmc_host *host)
 	}
 #else
 	err = mmc_sd_init_card(host, host->ocr, NULL);
+	if(err){
+		pr_err("err:%d sd card init fail\n",err);
+	}else{	
+		printk("sd card init ok\n");
+	}
 	if (err)
 		goto err;
 #endif
@@ -1297,6 +1317,13 @@ remove_card:
 	host->card = NULL;
 	mmc_claim_host(host);
 err:
+
+	// switch pin :only cmd and clk , uart tx rx
+	if(host->ops->switch_uart_pinctr(host)){
+		printk("Err:switch uart pin:%s\n",__FUNCTION__);
+		err = -1;
+		return err;
+	}
 	mmc_detach_bus(host);
 
 	pr_err("%s: error %d whilst initialising SD card\n",

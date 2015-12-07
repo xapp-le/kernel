@@ -44,6 +44,7 @@
 #include "mmc_ops.h"
 #include "sd_ops.h"
 #include "sdio_ops.h"
+#include "../host/gl520x_mmc.h"
 
 /* If the device is not responding */
 #define MMC_CORE_TIMEOUT_MS	(10 * 60 * 1000) /* 10 minute timeout */
@@ -71,8 +72,9 @@ module_param(use_spi_crc, bool, 0);
  * back data to a different card after resume.  Allow this to be
  * overridden if necessary.
  */
+
 #ifdef CONFIG_MMC_UNSAFE_RESUME
-bool mmc_assume_removable;
+bool mmc_assume_removable = 0;
 #else
 bool mmc_assume_removable = 1;
 #endif
@@ -175,7 +177,7 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 			pr_debug("%s:     %d bytes transferred: %d\n",
 				mmc_hostname(host),
 				mrq->data->bytes_xfered, mrq->data->error);
-			trace_mmc_blk_rw_end(cmd->opcode, cmd->arg, mrq->data);
+//			trace_mmc_blk_rw_end(cmd->opcode, cmd->arg, mrq->data);
 		}
 
 		if (mrq->stop) {
@@ -541,9 +543,9 @@ struct mmc_async_req *mmc_start_req(struct mmc_host *host,
 	}
 
 	if (!err && areq) {
-		trace_mmc_blk_rw_start(areq->mrq->cmd->opcode,
-				       areq->mrq->cmd->arg,
-				       areq->mrq->data);
+//		trace_mmc_blk_rw_start(areq->mrq->cmd->opcode,
+//				       areq->mrq->cmd->arg,
+//				       areq->mrq->data);
 		start_err = __mmc_start_data_req(host, areq->mrq);
 	}
 
@@ -1348,7 +1350,7 @@ int mmc_set_signal_voltage(struct mmc_host *host, int signal_voltage)
 {
 	struct mmc_command cmd = {0};
 	int err = 0;
-	u32 clock;
+	//u32 clock;
 
 	BUG_ON(!host);
 
@@ -1394,9 +1396,9 @@ int mmc_set_signal_voltage(struct mmc_host *host, int signal_voltage)
 	 * During a signal voltage level switch, the clock must be gated
 	 * for 5 ms according to the SD spec
 	 */
-	clock = host->ios.clock;
-	host->ios.clock = 0;
-	mmc_set_ios(host);
+	//clock = host->ios.clock;
+	//host->ios.clock = 0;
+	//mmc_set_ios(host);
 
 	if (__mmc_set_signal_voltage(host, signal_voltage)) {
 		/*
@@ -1409,8 +1411,8 @@ int mmc_set_signal_voltage(struct mmc_host *host, int signal_voltage)
 
 	/* Keep clock gated for at least 5 ms */
 	mmc_delay(5);
-	host->ios.clock = clock;
-	mmc_set_ios(host);
+	//host->ios.clock = clock;
+	//mmc_set_ios(host);
 
 	/* Wait for at least 1 ms according to spec */
 	mmc_delay(1);
@@ -1419,8 +1421,9 @@ int mmc_set_signal_voltage(struct mmc_host *host, int signal_voltage)
 	 * Failure to switch is indicated by the card holding
 	 * dat[0:3] low
 	 */
-	if (host->ops->card_busy && host->ops->card_busy(host))
-		err = -EAGAIN;
+	// printk("check dat[0:3] is high\n");
+	//if (host->ops->card_busy && host->ops->card_busy(host))
+	//	err = -EAGAIN;
 
 power_cycle:
 	if (err) {
@@ -1860,7 +1863,7 @@ static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 
 	fr = from;
 	nr = to - from + 1;
-	trace_mmc_blk_erase_start(arg, fr, nr);
+//	trace_mmc_blk_erase_start(arg, fr, nr);
 
 	/*
 	 * qty is used to calculate the erase timeout which depends on how many
@@ -1966,7 +1969,7 @@ static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 		 (R1_CURRENT_STATE(cmd.resp[0]) == R1_STATE_PRG));
 out:
 
-	trace_mmc_blk_erase_end(arg, fr, nr);
+//	trace_mmc_blk_erase_end(arg, fr, nr);
 	return err;
 }
 
@@ -2399,13 +2402,17 @@ void mmc_rescan(struct work_struct *work)
 		container_of(work, struct mmc_host, detect.work);
 	int i;
 	bool extend_wakelock = false;
+	struct gl520xmmc_host *owl_host;
+	owl_host = mmc_priv(host);
 
 	if (host->rescan_disable)
 		return;
 
 	/* If there is a non-removable card registered, only scan once */
-	if ((host->caps & MMC_CAP_NONREMOVABLE) && host->rescan_entered)
+	if ((host->caps & MMC_CAP_NONREMOVABLE) && host->rescan_entered){
+		wake_unlock(&host->detect_wake_lock);
 		return;
+	}
 	host->rescan_entered = 1;
 
 	mmc_bus_get(host);
@@ -2468,11 +2475,28 @@ void mmc_rescan(struct work_struct *work)
 		wake_lock_timeout(&host->detect_wake_lock, HZ / 2);
 	else
 		wake_unlock(&host->detect_wake_lock);
-	if (host->caps & MMC_CAP_NEEDS_POLL) {
+	if ((host->caps & MMC_CAP_NEEDS_POLL)
+#ifdef CONFIG_EARLYSUSPEND
+		&&(!(owl_host->mmc_early_suspend))
+#endif
+		){
 		wake_lock(&host->detect_wake_lock);
 		mmc_schedule_delayed_work(&host->detect, HZ);
 	}
 }
+void cancel_mmc_work(struct mmc_host *host )
+{
+
+}
+EXPORT_SYMBOL(cancel_mmc_work);
+
+
+void start_mmc_work(struct mmc_host *host )
+{
+	mmc_schedule_delayed_work(&host->detect, HZ/4);
+}
+
+EXPORT_SYMBOL(start_mmc_work);
 
 void mmc_start_host(struct mmc_host *host)
 {
@@ -2741,6 +2765,18 @@ EXPORT_SYMBOL(mmc_suspend_host);
  *	mmc_resume_host - resume a previously suspended host
  *	@host: mmc host
  */
+int sd_mmc_reinit(struct mmc_host *host)
+{
+	int err = 0;
+	BUG_ON( !(host->bus_ops && !host->bus_dead)) ;
+	mmc_power_off(host);
+	mmc_power_up(host);
+	mmc_select_voltage(host, host->ocr);
+	BUG_ON(!host->bus_ops->resume);
+	err = host->bus_ops->resume(host);
+	return err;
+}
+EXPORT_SYMBOL(sd_mmc_reinit);
 int mmc_resume_host(struct mmc_host *host)
 {
 	int err = 0;
