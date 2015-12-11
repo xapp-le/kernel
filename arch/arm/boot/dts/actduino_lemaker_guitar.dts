@@ -1095,13 +1095,13 @@ lcd0: lcd0@b02a0000 {
 			xres = <1024>;
 			yres = <600>;
 			/*in pico second, 0.000 000 000 001s*/
-			pixclock = <20000>;
-			left_margin = <56>;
-			right_margin = <60>;
-			upper_margin = <13>;
-			lower_margin = <18>;
-			hsync_len = <4>;
-			vsync_len = <4>;
+			pixclock = <18348>;
+			left_margin = <100>;
+			right_margin = <100>;
+			upper_margin = <30>;
+			lower_margin = <30>;
+			hsync_len = <120>;
+			vsync_len = <30>;
 			/*0: FB_VMODE_NONINTERLACED, 1:FB_VMODE_INTERLACED*/
 			vmode = <0>;
 		};
@@ -1162,7 +1162,7 @@ lcd0: lcd0@b02a0000 {
 		/*1.pwm num; 2. period in ns; */
 		/*3.plarity, 0: high active, 1: low active*/
 		//backlight_en_gpios = <&gpio 124 0>; /*S500 GPIOD28*/ 
-		pwms = <&pwm 0 50000 1>;
+		pwms = <&pwm 0 50000 0>;
 		total_steps = <1024>;
 		min_brightness = <250>;
 		max_brightness = <1000>;
