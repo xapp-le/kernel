@@ -999,6 +999,7 @@
 	};
 
 	usb@b0600000 {
+		aotg_udc_enable = <1>;
 		vbus_otg_en_gpio = <&gpio 36 1>; /*GPIO B4*/
 		port0_host_plug_detect = <3>;
 		status = "disabled";
