@@ -373,12 +373,13 @@ static int hdmi_power_on_full(struct owl_dss_device *dssdev)
     }
 
 	//hdmi.ip_data.ops->hdmi_devclken(&hdmi.ip_data, 1);
+	hdmi.ip_data.ops->hdmi_reset(&hdmi.ip_data);
+	
+	hdmi.ip_data.ops->pmds_ldo_enable(&hdmi.ip_data,true);
 
 	hdmi.ip_data.ops->hdmi_clk24Men(&hdmi.ip_data, 1);	
 	
-	hdmi.ip_data.ops->pll_enable(&hdmi.ip_data);
-	
-	hdmi.ip_data.ops->hdmi_reset(&hdmi.ip_data);
+	hdmi.ip_data.ops->pll_enable(&hdmi.ip_data);	
 	
 	hdmi.ip_data.ops->hpd_clear_plug(&hdmi.ip_data);	
 	
@@ -414,7 +415,10 @@ static void hdmi_power_off_full(struct owl_dss_device *dssdev)
 	dss_mgr_disable(mgr);
 	
 	hdmi.ip_data.ops->pll_disable(&hdmi.ip_data);
-	hdmi.ip_data.ops->hdmi_clk24Men(&hdmi.ip_data, 0);	
+	
+	hdmi.ip_data.ops->hdmi_clk24Men(&hdmi.ip_data, 0);
+		
+	hdmi.ip_data.ops->pmds_ldo_enable(&hdmi.ip_data,false);
 	
 	restore_declk_for_hdmi();	
 }
