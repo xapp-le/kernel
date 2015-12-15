@@ -245,7 +245,7 @@ static struct aotg_uhost_mon_t * aotg_uhost_mon_alloc(void)
 	return umon;
 }
 
-void aotg_uhost_mon_init(void)
+void aotg_uhost_mon_init(struct work_struct *w)
 {
 	struct device_node *of_node;
 	enum of_gpio_flags flags;

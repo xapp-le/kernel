@@ -77,7 +77,6 @@ static inline void udc_handle_status(struct aotg_udc *udc);
 extern void done(struct aotg_ep *ep, struct aotg_request *req, int status);
 static int write_ep0_fifo(struct aotg_ep *ep, struct aotg_request *req);
 int pullup(struct aotg_udc *udc, int is_active);
-static int aotg_udc_endpoint_config(struct aotg_udc *udc, struct usb_gadget_driver *driver);
 static void udc_enable(struct aotg_udc *dev);
 static void udc_disable(struct aotg_udc *dev);
 
@@ -884,7 +883,7 @@ static int aotg_udc_start(struct usb_gadget *g, struct usb_gadget_driver *driver
 	udc->driver = driver;
 	extern_irq_enable(udc);
 	udc_enable(udc);
-	aotg_udc_endpoint_config(udc, driver);
+	aotg_udc_endpoint_config(udc);
 
 	if (udc->transceiver) {
 		retval = otg_set_peripheral(udc->transceiver->otg, &udc->gadget);
@@ -1719,17 +1718,25 @@ irqreturn_t aotg_udc_irq(int irq, void *data)
 				udc->driver->disconnect(&udc->gadget);
 			}
 			udc->gadget.speed = USB_SPEED_UNKNOWN;
-			printk("%d,===============set speed unknown=============\n",__LINE__);
 		}
 		spin_unlock_irqrestore(&udc->lock, flags);
 		return retval;
 	}
 
 	irqvector = readb(udc->base + IVECT);
-	printk("i%x\n", irqvector);
 
 	switch (irqvector) {
 	case UIV_IDLE:
+		if (  udc->gadget.speed != USB_SPEED_UNKNOWN)
+		{
+			printk("%p %p\n",udc->driver, udc->driver->disconnect);
+			if (udc->driver && udc->driver->disconnect) {
+				spin_unlock_irqrestore(&udc->lock, flags);
+				udc->driver->disconnect(&udc->gadget);
+				spin_lock_irqsave(&udc->lock, flags);
+				//aotg_dev_plugout_msg(udc->id);
+			}
+		}
 	case UIV_SRPDET:
 	case UIV_LOCSOF:
 	case UIV_VBUSERR:
@@ -1758,7 +1765,6 @@ UDC_DBG_ERR;
 		UDC_DEBUG("UIV_OTG_IRQ 0x%x\n", otgint);
 		break;
 	case UIV_USBRESET:
-		printk("reset irq come!\n");
 		if (  udc->gadget.speed != USB_SPEED_UNKNOWN)
 		{
 			if (udc->driver && udc->driver->disconnect) {
@@ -1881,7 +1887,7 @@ void udc_reinit(struct aotg_udc *dev)
 	}
 }
 
-static int aotg_udc_endpoint_config(struct aotg_udc *udc, struct usb_gadget_driver *driver)
+void aotg_udc_endpoint_config(struct aotg_udc *udc)
 {
 	UDC_BULK_EP(1, "ep1out", USB_DIR_OUT | 1, EPCON_BUF_SINGLE);
 	UDC_BULK_EP(2, "ep1in", USB_DIR_IN | 1, EPCON_BUF_SINGLE);
@@ -1892,7 +1898,6 @@ static int aotg_udc_endpoint_config(struct aotg_udc *udc, struct usb_gadget_driv
 	UDC_ISO_EP(7, "ep4in", USB_DIR_IN | 4, EPCON_BUF_SINGLE);
 
 	udc_ep_packet_config(USB_SPEED_FULL, udc);
-	return 0;
 }
 
 struct aotg_udc memory = {

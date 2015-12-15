@@ -274,7 +274,7 @@ static ulong get_fifo_addr(struct aotg_hcd *acthcd, int size)
 	for (i = 2; i < max_unit;) {
 		if (acthcd->fifo_map[i] != 0) {
 			i++;
-			continue;    //find first unused addr
+			continue; /*find first unused addr*/
 		}
 
 		for (j = i; j < max_unit; j++) {
@@ -288,16 +288,16 @@ static ulong get_fifo_addr(struct aotg_hcd *acthcd, int size)
 			}
 		}
 
-		if (j == 64) {
+		if (j == max_unit) {
 			break;
 		} else if (find_next) {
 			find_next = 0;
 			continue;
 		} else {
 			int k;
-			for (k = i; k <= j; k++) {
+			for (k = i; k <= j; k++)
 				acthcd->fifo_map[k] = (1 << 31) | (i * 64);
-			}
+
 			addr = i * ALLOC_FIFO_UNIT;
 			break;
 		}
@@ -549,149 +549,7 @@ static void aotg_start_ring_transfer(struct aotg_hcd *acthcd, struct aotg_hcep *
 	aotg_start_ring(ring, addr);
 }
 #endif
-/*
-static void aotg_stop_ring_transfer(struct aotg_hcd *acthcd, struct aotg_hcep *ep)
-{
-	struct aotg_ring *ring = ep->ring;
 
-	ep_disable(ep);
-	aotg_stop_ring(ring);
-}
-*/
-static int aotg_hcep_config_iso(struct aotg_hcd *acthcd, struct aotg_hcep *ep,
-			u8 type, u8 buftype, int is_out)
-{
-	int index = 0;
-	ulong addr = 0;
-	int get_ep = 0;
-	int subbuffer_count;
-	//u8 fifo_ctrl;
-
-	if (0 == (subbuffer_count = get_subbuffer_count(buftype))) {
-		dev_err(acthcd->dev, "error buftype: %02X, %s, %d\n", buftype, __func__, __LINE__);
-		return -EPIPE;
-	}
-
-	if (is_out) {
-		for (index = 1; index < MAX_EP_NUM; index++) {
-			if (acthcd->outep[index] == NULL) {
-				ep->is_out = 1;
-				ep->index = index;
-				ep->mask = (u8) (USB_HCD_OUT_MASK | index);
-				acthcd->outep[index] = ep;
-				get_ep = 1;
-				break;
-			}
-		}
-	} else {
-		for (index = 1; index < MAX_EP_NUM; index++) {
-			if (acthcd->inep[index] == NULL) {
-				ep->is_out = 0;
-				ep->index = index;
-				ep->mask = (u8) index;
-				acthcd->inep[index] = ep;
-				get_ep = 1;
-				break;
-			}
-		}
-	}
-
-	if (!get_ep) {
-		dev_err(acthcd->dev, "%s: no more available space for ep\n", __func__);
-		return -ENOSPC;
-	}
-
-	addr = get_fifo_addr(acthcd, subbuffer_count * MAX_PACKET(ep->maxpacket));
-	if (addr == 0) {
-		dev_err(acthcd->dev, "buffer configuration overload!! addr: %08X, subbuffer_count: %d, ep->maxpacket: %u\n",
-				(u32)addr, subbuffer_count, MAX_PACKET(ep->maxpacket));
-		if (is_out) {
-			acthcd->outep[ep->index] = NULL;
-		}
-		else {
-			acthcd->inep[ep->index] = NULL;
-		}
-		return -ENOSPC;
-	}
-	else {
-		ep->fifo_addr = addr;
-	}
-
-	ep->reg_hcepcon = get_hcepcon_reg(is_out, 
-							acthcd->base + HCOUT1CON, 
-							acthcd->base + HCIN1CON, 
-							ep->index);
-	ep->reg_hcepcs = get_hcepcs_reg(is_out, 
-							acthcd->base + HCOUT1CS, 
-							acthcd->base + HCIN1CS, 
-							ep->index);
-	ep->reg_hcepbc = get_hcepbc_reg(is_out, 
-							acthcd->base + HCOUT1BCL, 
-							acthcd->base + HCIN1BCL, 
-							ep->index);
-	ep->reg_hcepctrl = get_hcepctrl_reg(is_out, 
-							acthcd->base + HCOUT1CTRL, 
-							acthcd->base + HCIN1CTRL, 
-							ep->index);
-	ep->reg_hcmaxpck = get_hcepmaxpck_reg(is_out, 
-							acthcd->base + HCOUT1MAXPCKL, 
-							acthcd->base + HCIN1MAXPCKL, 
-							ep->index);
-	ep->reg_hcepaddr = get_hcepaddr_reg(is_out, 
-							acthcd->base + HCOUT1STADDR, 
-	    						acthcd->base + HCIN1STADDR, 
-	    						ep->index);
-	ep->reg_hcep_dev_addr = get_hcep_dev_addr_reg(is_out,
-							acthcd->base + HCOUT1ADDR, 
-	    						acthcd->base + HCIN1ADDR, 
-	    						ep->index);
-	ep->reg_hcep_port = get_hcep_port_reg(is_out,
-							acthcd->base + HCOUT1PORT, 
-	    						acthcd->base + HCIN1PORT, 
-	    						ep->index);
-	ep->reg_hcep_splitcs = get_hcep_splitcs_reg(is_out,
-							acthcd->base + HCOUT1SPILITCS, 
-	    						acthcd->base + HCIN1SPILITCS, 
-	    						ep->index);
-
-	//ep->reg_hcfifo = get_hcfifo_reg(acthcd->base + FIFO1DATA, ep->index);
-	if (!is_out) {
-		///* 5202 is just for write, read's HCINXCOUNT address is not the same with write address. */
-		//ep->reg_hcincount_wt = acthcd->base + HCIN1_COUNTL + (ep->index - 1) * 4;
-		//ep->reg_hcincount_rd = acthcd->base + HCIN1_COUNTL + (ep->index - 1) * 2;
-		ep->reg_hcerr = acthcd->base + HCIN0ERR + ep->index * 0x4;
-		ep->reg_hcep_interval = acthcd->base + HCEP0BINTERVAL + ep->index * 0x8;
-	}
-	else {
-		ep->reg_hcerr = acthcd->base + HCOUT0ERR + ep->index * 0x4;
-		ep->reg_hcep_interval = acthcd->base + HCOUT1BINTERVAL + (ep->index - 1) * 0x8;
-	}
-
-#ifdef DEBUG_EP_CONFIG
-	dev_info(acthcd->dev, "== ep->index: %d, is_out: %d, fifo addr: %08X\n", ep->index, is_out, (u32)addr);
-	dev_info(acthcd->dev, "== reg_hcepcon: %08lX, reg_hcepcs: %08lX, reg_hcepbc: %08lX, reg_hcepctrl: %08lX, reg_hcmaxpck: %08lX, ep->reg_hcepaddr: %08lX\n",
-			ep->reg_hcepcon,
-			ep->reg_hcepcs,
-			ep->reg_hcepbc,
-			ep->reg_hcepctrl,
-			ep->reg_hcmaxpck,
-			ep->reg_hcepaddr);
-#endif
-	
-	/*allocate buffer address of ep fifo */
-	writel(addr, ep->reg_hcepaddr);
-	writew(ep->maxpacket, ep->reg_hcmaxpck);
-	ep_setup(ep, type, buftype);	/*ep setup */
-	
-	/*reset this ep */
-	usb_settoggle(ep->udev, ep->epnum, is_out, 0);
-	aotg_hcep_reset(acthcd, ep->mask, ENDPRST_FIFORST | ENDPRST_TOGRST);
-	writeb(ep->epnum, ep->reg_hcepctrl);
-
-	return 0;
-}
-
-//support 3 bulk, 1 interrupt
 static int aotg_hcep_config(struct aotg_hcd *acthcd,
 			    struct aotg_hcep *ep,
 			    u8 type, u8 buftype, int is_out)
@@ -2225,7 +2083,7 @@ static struct aotg_hcep	*aotg_hcep_alloc(struct usb_hcd *hcd, struct urb *urb)
 		break;
 
 	case PIPE_ISOCHRONOUS:
-		retval = aotg_hcep_config_iso(acthcd, ep, EPCON_TYPE_ISO, EPCON_BUF_SINGLE, is_out);
+		retval = aotg_hcep_config(acthcd, ep, EPCON_TYPE_ISO, EPCON_BUF_SINGLE, is_out);
 		ep->iso_packets = (urb->ep->desc.wMaxPacketSize >> 11) & 3;
 		ep->interval = urb->ep->desc.bInterval;
 		writeb(ep->interval, ep->reg_hcep_interval);

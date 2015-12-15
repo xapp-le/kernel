@@ -228,5 +228,6 @@ extern struct platform_driver aotg_udc_driver;
 irqreturn_t aotg_udc_irq(int irq, void *data);
 void udc_reinit(struct aotg_udc *dev);
 int pullup(struct aotg_udc *udc, int is_active);
+void aotg_udc_endpoint_config(struct aotg_udc *udc);
 
 #endif				/* __LINUX_USB_GADGET_AOTG_H */

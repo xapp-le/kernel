@@ -23,7 +23,7 @@
 #define  USB_HCD_IN_MASK	0x00 
 #define  USB_HCD_OUT_MASK 0x10 
  
-#define  AOTG_MAX_FIFO_SIZE    (512*10 + 64*2)	//5k
+#define  AOTG_MAX_FIFO_SIZE    (1024*15 + 64*2)
 #define  ALLOC_FIFO_UNIT        64
 //#define  AOTG_MIN_DMA_SIZE	  512
 //#define  AOTG_MIN_DMA_SIZE	  64

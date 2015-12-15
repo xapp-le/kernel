@@ -43,6 +43,7 @@
 #include <linux/of_address.h>
 #include <linux/of_device.h>
 #include <linux/of_irq.h>
+#include <mach/bootdev.h>
 
 #include <asm/irq.h>
 #include <asm/system.h>
@@ -499,8 +500,8 @@ int aotg_probe(struct platform_device *pdev)
 
 err2:
 	aotg_clk_enable(pdev->id, 0);
-	owl_powergate_power_off(acthcd->id ? OWL_POWERGATE_USB2_1 : OWL_POWERGATE_USB2_0);
-	iounmap(hcd->regs);
+	owl_powergate_power_off(pdev->id ? OWL_POWERGATE_USB2_1 : OWL_POWERGATE_USB2_0);
+	iounmap(regs);
 err1:
 	release_mem_region(res_mem->start, res_mem->end - res_mem->start + 1);
 err0:
@@ -736,6 +737,7 @@ int aotg_udc_register(int id)
 			}
 		}
 		aotg_udc_init(id);
+		aotg_udc_endpoint_config(acts_udc_controller);
 		pullup(acts_udc_controller, 1);
 		usb_setbitsb(USBEIRQ_USBIEN, acts_udc_controller->base + USBEIEN);
 	} else {
@@ -820,7 +822,8 @@ int is_udc_enable(int id)
 void aotg_udc_add(void)
 {
 	int id;
-	printk("%s %d.............\n",__func__,__LINE__);
+	if(owl_get_boot_mode() == OWL_BOOT_MODE_UPGRADE)
+		return;
 	if (is_udc_enable(0)) {
 		id = 0;
 	} else if (is_udc_enable(1)) {
@@ -835,6 +838,8 @@ void aotg_udc_add(void)
 void aotg_udc_remove(void)
 {
 	int id;
+	if(owl_get_boot_mode() == OWL_BOOT_MODE_UPGRADE)
+		return;
 	if (aotg_udc_enable[0])
 		id = 0;
 	else if (aotg_udc_enable[1])
