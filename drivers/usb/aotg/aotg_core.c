@@ -143,6 +143,31 @@ static void aotg_DD_set_phy(void __iomem *base, u8 reg, u8 value)
 	return;
 }
 
+static void aotg_set_udc_phy(int id)
+{
+	int slew_rate;
+	void __iomem *base = acts_udc_controller->base;
+	if (id)
+		slew_rate = aotg1_slew_rate;
+	else
+		slew_rate = aotg0_slew_rate;
+
+	aotg_DD_set_phy(base, 0xf4,(1<<7) |(1<<5)|(1<<4)|(2<<2)|(3<<0));
+	aotg_DD_set_phy(base, 0xe0,(1<<5) |(1<<4)|(0<<3)|(1<<2)|(1<<0));
+	
+	aotg_DD_set_phy(base, 0xf4,(1<<7) |(1<<5)|(1<<4)|(2<<2)|(3<<0));
+	aotg_DD_set_phy(base, 0xe1,(slew_rate<<5) |(0<<4)|(1<<3)|(1<<2)|(3<<0));
+	
+	aotg_DD_set_phy(base, 0xf4,(1<<7) |(0<<5)|(1<<4)|(2<<2)|(3<<0));
+	aotg_DD_set_phy(base, 0xe6,(1<<7) |(4<<4)|(1<<3)|(0<<2)|(3<<0));
+	
+	aotg_DD_set_phy(base, 0xf4,(1<<7) |(0<<5)|(1<<4)|(2<<2)|(3<<0));
+	aotg_DD_set_phy(base, 0xe7,(7<<4)|(0<<1)|(1<<0));
+	
+	aotg_DD_set_phy(base, 0xf4,(1<<7) |(0<<5)|(1<<4)|(2<<2)|(3<<0));
+	aotg_DD_set_phy(base, 0xe4,(9<<4)|(7<<0));
+}
+
 static void aotg_set_hcd_phy(int id)
 {
 	int slew_rate,tx_bias;
@@ -297,8 +322,7 @@ void aotg_hardware_init(int id)
 			writel((0x3f << 24) | (0x10 << 13) | (0xb << 4) | (0x0f), data->usbecs);
 		}
 		udelay(100);
-		printk("USBECS(0x%x),CMU_USBPLL(0x%x)\n",usb_readl(data->usbecs),usb_readl(data->usbpll));
-		//aotg_set_udc_phy(base);
+		aotg_set_udc_phy(id);
 		usb_setbitsb(1 << 4, base + BKDOOR);  /*clk40m */
 
 		writeb(0xff,base + USBIRQ);
@@ -375,7 +399,7 @@ int aotg_probe(struct platform_device *pdev)
 		retval = -ENODEV;
 		goto err0;
 	}
-	printk("res_mem->start--end = 0x%x--0x%x\n",res_mem->start,res_mem->end);
+	pr_info("res_mem->start--end = 0x%x--0x%x\n",res_mem->start,res_mem->end);
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq <= 0) {
@@ -383,7 +407,6 @@ int aotg_probe(struct platform_device *pdev)
 		retval = -ENODEV;
 		goto err0;
 	}
-	printk("irq = %d\n",irq);
 
 	if (!request_mem_region(res_mem->start, res_mem->end - res_mem->start + 1, dev_name(&pdev->dev))) {
 		dev_err(&pdev->dev, "<AOTG_PROBE>request_mem_region failed\n");
@@ -397,8 +420,6 @@ int aotg_probe(struct platform_device *pdev)
 		retval = -ENOMEM;
 		goto err1;
 	}
-
-	printk("pdev->id:%d\n",pdev->id);
 
 	if (aotg_mode[pdev->id] == HCD_MODE) {
 		hcd = usb_create_hcd(&act_hc_driver, &pdev->dev, dev_name(&pdev->dev));
@@ -546,31 +567,30 @@ int aotg_device_init(int dev_id, enum aotg_mode_e mode)
 	aotg_mode[dev_id] = mode;
 	of_node = of_find_compatible_node(NULL, NULL, aotg_of_match[dev_id].compatible);
 	if (NULL == of_node) {
-		ERR("can't find usbh%d dts node\n",dev_id);
+		pr_err("can't find usbh%d dts node\n",dev_id);
 		ret = -1;
 		goto err1;
 	}
 
 	memset(&res, 0, sizeof(res));
 	if (of_address_to_resource(of_node, 0, &res[0])) {
-		ERR("can't fetch mem info from dts\n");
+		pr_err("can't fetch mem info from dts\n");
 		ret = -2;
 		goto err1;
 	}
 
 	if (of_irq_to_resource(of_node, 0, &res[1]) == NO_IRQ) {
-		ERR("can't fetch IRQ info from dts\n");
+		pr_err("can't fetch IRQ info from dts\n");
 		ret = -3;
 		goto err1;
 	}
 
-	printk("id=%d,aotg_mode=%d\n",dev_id, mode);
 	if (mode == HCD_MODE)
 		aotg_dev[dev_id][mode] = platform_device_alloc("aotg_hcd", dev_id);
 	else
 		aotg_dev[dev_id][mode] = platform_device_alloc("aotg_udc", dev_id);
 	if (!aotg_dev[dev_id][mode]) {
-		ERR("platform_device_alloc fail\n");
+		pr_err("platform_device_alloc fail\n");
 		ret = -ENOMEM;
 		goto err1;
 	}
@@ -607,7 +627,6 @@ err1:
 void aotg_device_exit(int dev_id, enum aotg_mode_e mode)
 {
 	mutex_lock(&aotg_onoff_mutex);
-	printk("id=%d,aotg_mode=%d\n",dev_id, mode);
 	if (!aotg_initialized[dev_id][mode]) {
 		printk("aotg%d exit already!\n",dev_id);
 		mutex_unlock(&aotg_onoff_mutex);
@@ -655,7 +674,6 @@ void aotg_udc_init(int id)
 		retval = -ENODEV;
 		goto err0;
 	}
-	printk("irq = %d\n",irq);
 
 	if (!request_mem_region(res_mem->start, res_mem->end - res_mem->start + 1, dev_name(&pdev->dev))) {
 		dev_err(&pdev->dev, "<AOTG_PROBE>request_mem_region failed\n");
@@ -705,6 +723,7 @@ err0:
 void aotg_udc_exit(int id)
 {
 	struct aotg_udc *udc = acts_udc_controller;
+	acts_udc_controller = NULL;
 	free_irq(udc->irq, udc);
 	aotg_clk_enable(id, 0);
 	iounmap(udc->base);
@@ -717,6 +736,16 @@ int aotg_udc_register(int id)
 	int ret = 0;
 	if (aotg_dev[id][HCD_MODE]) {
 		pr_err("aotg%d is used in hcd mode now!\n",id);
+		return -1;
+	}
+
+	if (acts_udc_controller) {
+		pr_err("aotg%d has been in udc mode now!\n",id);
+		return -1;
+	}
+
+	if (aotg_initialized[id][HCD_MODE]) {
+		pr_err("aotg%d has been in hcd mode now!\n",id);
 		return -1;
 	}
 
@@ -750,8 +779,11 @@ EXPORT_SYMBOL(aotg_udc_register);
 
 void aotg_udc_unregister(int id)
 {
-	if (!aotg_dev[id][UDC_MODE])
+	if (!acts_udc_controller) {
+		pr_err("aotg%d hasn't added udc before now\n",id);
 		return;
+	}
+
 	aotg_udc_exit(id);
 	if (id) {
 		if (aotg_uhost_mon1) {
