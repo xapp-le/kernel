@@ -344,39 +344,65 @@ struct of_device_id aotg_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, aotg_of_match);
 
-static int aotg_platform_device_init(struct platform_device *pdev)
+void aotg_get_dts(void)
 {
 	struct device_node *of_node;
 	enum of_gpio_flags flags;
-
-	of_node = of_find_compatible_node(NULL, NULL, aotg_of_match[pdev->id].compatible);
-	if (NULL == of_node) {
-		dev_err(&pdev->dev, "can't find usbh%d dts node\n",pdev->id);
-		return -1;
-	}
-
-	if (aotg_mode[pdev->id] == UDC_MODE)
-		return 0;
-
-	if (!of_find_property(of_node, "vbus_otg_en_gpio", NULL)) {
-		pr_info("can't find vbus_otg_en_gpio config\n");
-		vbus_otg_en_gpio[pdev->id][0] = -1;
-	} else {
-		vbus_otg_en_gpio[pdev->id][0] = of_get_named_gpio_flags(of_node, "vbus_otg_en_gpio",0, &flags);
-		vbus_otg_en_gpio[pdev->id][1] = flags & 0x01;
-		if (gpio_request(vbus_otg_en_gpio[pdev->id][0], aotg_of_match[pdev->id].compatible)) {
-			dev_dbg(&pdev->dev, "fail to request vbus gpio [%d]\n", vbus_otg_en_gpio[pdev->id][0]);
-			//return -3;
+	
+	of_node = of_find_compatible_node(NULL, NULL, "actions,owl-usb-2.0-0");
+	if (of_node) {
+		if (!of_find_property(of_node, "port0_host_plug_detect", NULL)) {
+			pr_info("can't find port0_host_plug_detect config\n");
+			port_host_plug_detect[0] = 0;
+		}	else {
+			port_host_plug_detect[0] = be32_to_cpup((const __be32 *)of_get_property(of_node,  "port0_host_plug_detect",NULL));
 		}
-		gpio_direction_output(vbus_otg_en_gpio[pdev->id][0], 1);
+		pr_info("port_host_plug_detect[0]:%d\n", port_host_plug_detect[0]);
+		
+		if (!of_find_property(of_node, "vbus_otg_en_gpio", NULL)) {
+			pr_debug("can't find vbus_otg0_en_gpio config\n");
+			vbus_otg_en_gpio[0][0] = -1;
+		}	else {
+			vbus_otg_en_gpio[0][0] = of_get_named_gpio_flags(of_node,  "vbus_otg_en_gpio",0, &flags);
+			vbus_otg_en_gpio[0][1] = flags & 0x01;
+			if (gpio_request(vbus_otg_en_gpio[0][0], aotg_of_match[0].compatible))
+				pr_debug("fail to request vbus gpio [%d]\n", vbus_otg_en_gpio[0][0]);
+			if (port_host_plug_detect[0] != 2)
+				gpio_direction_output(vbus_otg_en_gpio[0][0], !!port_host_plug_detect[0]);
+		}
+		pr_info("port0_vubs_en:%d\n",vbus_otg_en_gpio[0][0]);
+	}
+	else {
+		pr_debug("can't find usbh0 dts node\n");
 	}
 	
-	pr_info("vbus_otg_en_gpio:%d\n",vbus_otg_en_gpio[pdev->id][0]);
-	
-	aotg_power_onoff(pdev->id,1);
-
-	return 0;
-};
+	of_node = of_find_compatible_node(NULL, NULL, "actions,owl-usb-2.0-1");
+	if (of_node) {
+		if (!of_find_property(of_node, "port1_host_plug_detect", NULL)) {
+			pr_info("can't find port1_host_plug_detect config\n");
+			port_host_plug_detect[1] = 0;
+		}	else {
+			port_host_plug_detect[1] = be32_to_cpup((const __be32 *)of_get_property(of_node,  "port1_host_plug_detect",NULL));
+		}
+		pr_info("port_host_plug_detect[1]:%d\n", port_host_plug_detect[1]);
+		
+		if (!of_find_property(of_node, "vbus_otg_en_gpio", NULL)) {
+			printk("can't find vbus_otg1_en_gpio config\n");
+			vbus_otg_en_gpio[1][0] = -1;
+		}	else {
+			vbus_otg_en_gpio[1][0] = of_get_named_gpio_flags(of_node,  "vbus_otg_en_gpio",0, &flags);
+			vbus_otg_en_gpio[1][1] = flags & 0x01;
+			if (gpio_request(vbus_otg_en_gpio[1][0], aotg_of_match[1].compatible))
+				pr_debug("fail to request vbus gpio [%d]\n", vbus_otg_en_gpio[1][0]);
+			if (port_host_plug_detect[1] != 2)
+				gpio_direction_output(vbus_otg_en_gpio[1][0], !!port_host_plug_detect[1]);
+		}
+		pr_info("port1_vubs_en:%d\n",vbus_otg_en_gpio[1][0]);
+	}
+	else {
+		pr_debug("can't find usbh1 dts node\n");
+	}
+}
 
 int aotg_probe(struct platform_device *pdev)
 {
@@ -388,10 +414,8 @@ int aotg_probe(struct platform_device *pdev)
 	int irq;
 	int retval;
 
-	if (aotg_platform_device_init(pdev) <0) {
-		retval = -ENODEV;
-		goto err0;
-	}
+	if (aotg_mode[pdev->id] == HCD_MODE)
+		aotg_power_onoff(pdev->id,1);
 
 	res_mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res_mem) {
@@ -892,6 +916,7 @@ static int __init aotg_init(void)
 	create_acts_hcd_proc();
 	platform_driver_register(&aotg_udc_driver);
 	create_acts_udc_proc();
+	aotg_get_dts();
 	aotg_udc_add();
 	start_mon_wq = create_singlethread_workqueue("aotg_start_mon_wq");
 	INIT_DELAYED_WORK(&start_mon_wker, aotg_uhost_mon_init);

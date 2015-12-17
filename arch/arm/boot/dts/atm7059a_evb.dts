@@ -935,11 +935,9 @@
 
 	usb@b0600000 {
 		vbus_otg_en_gpio = <&gpio 126 0>; /*GPIO D30*/
-		status = "disabled";
 	};
 	usb@b0700000 {
 		vbus_otg_en_gpio =<&gpio 125 0>; /*GPIO D29*/
-		status = "disabled";
 	};
 
 	usb@b0400000 {

@@ -972,11 +972,9 @@
   usb@b0600000 { 
      //vbus_otg_en_gpio = <&gpio 116 0>; /*GPIO D20*/ 
      port0_host_plug_detect = <2>;
-		 status = "okay";
    }; 
    usb@b0700000 { 
      vbus_otg_en_gpio =<&gpio 116 0>; /*GPIO D20*/ 
-		 status = "disabled";
    };
 
 	monitor {
