@@ -505,25 +505,25 @@ void hdmi_send_uevent(bool data)
 			HDMI_DEBUG("parse_edid end\n");		
 			if(hdmi.data.hpd_en){	
 				switch_set_state(&hdev, 1);	
+				atomic_set(&hdmi_status, 1);
 			}
 			if(hdmi.dssdev != NULL 
 				&& hdmi.dssdev->driver != NULL 
 				&& hdmi.dssdev->driver->hot_plug_nodify){
 				hdmi.dssdev->driver->hot_plug_nodify(hdmi.dssdev,data);	
 			}
-			atomic_set(&hdmi_status, 1);
 		}
 	}else{
 		if((atomic_read(&hdmi_status)==1)&&hdmi.data.send_uevent){
 			if(hdmi.data.hpd_en){
 				switch_set_state(&hdev, 0);	
+				atomic_set(&hdmi_status, 0);
 			}
 			if(hdmi.dssdev != NULL 
 				&& hdmi.dssdev->driver != NULL 
 				&& hdmi.dssdev->driver->hot_plug_nodify){
 				hdmi.dssdev->driver->hot_plug_nodify(hdmi.dssdev,data);	
 			}
-			atomic_set(&hdmi_status, 0);
 		}	
 	}		
 	mutex_unlock(&hdmi.ip_data.lock);
@@ -682,11 +682,11 @@ void owldss_hdmi_display_enable_hotplug(struct owl_dss_device *dssdev, bool enab
 	HDMI_DEBUG("owldss_hdmi_display_enable_hotplug  enable %d\n", enable);
 	hdmi.ip_data.ops->hpd_enable(&hdmi.ip_data, enable);
 	if(enable){
+		hdmi.data.hpd_en = 1;
 		if(hdmi.ip_data.ops->cable_check(&hdmi.ip_data)){
 			HDMI_DEBUG("owldss_hdmi_display_enable_hotplug  switch_set_state 1\n");
 			hdmi_send_uevent(1);
 		}
-		hdmi.data.hpd_en = 1;
 	}else{
 		if(hdmi.ip_data.ops->cable_check(&hdmi.ip_data)){
 			HDMI_DEBUG("owldss_hdmi_display_enable_hotplug  switch_set_state 0\n");
