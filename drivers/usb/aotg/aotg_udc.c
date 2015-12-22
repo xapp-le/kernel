@@ -1894,7 +1894,8 @@ void aotg_udc_endpoint_config(struct aotg_udc *udc)
 	UDC_BULK_EP(3, "ep2out", USB_DIR_OUT | 2, EPCON_BUF_SINGLE);
 	UDC_BULK_EP(4, "ep2in", USB_DIR_IN | 2, EPCON_BUF_SINGLE);
 	UDC_BULK_EP(5, "ep3out", USB_DIR_OUT | 3, EPCON_BUF_SINGLE);
-	UDC_INT_EP(6, "ep3in", USB_DIR_IN | 3, EPCON_BUF_SINGLE);
+	/*UDC_INT_EP(6, "ep3in", USB_DIR_IN | 3, EPCON_BUF_SINGLE);*/
+	UDC_BULK_EP(6, "ep3in", USB_DIR_IN | 3, EPCON_BUF_SINGLE);
 	UDC_ISO_EP(7, "ep4in", USB_DIR_IN | 4, EPCON_BUF_SINGLE);
 
 	udc_ep_packet_config(USB_SPEED_FULL, udc);
