@@ -50,6 +50,7 @@ extern struct of_device_id aotg_of_match[];
 extern int aotg_probe(struct platform_device *pdev);
 extern int aotg_remove(struct platform_device *pdev);
 void aotg_clk_enable(int id, int is_enable);
+int aotg_udc_register(int id);
 
 
 #endif

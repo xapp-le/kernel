@@ -264,6 +264,9 @@ void aotg_uhost_mon_init(struct work_struct *w)
 		wake_lock_init(&aotg_uhost_mon0->aotg_wake_lock, WAKE_LOCK_SUSPEND, "aotg_wake_lock0");
 		printk("start mon 0 ......\n");
 		mod_timer(&aotg_uhost_mon0->hotplug_timer, jiffies + msecs_to_jiffies(10000));
+        	if (aotg_udc_enable[0]){
+			aotg_udc_register(0);
+		}
 	}
 	if (port_host_plug_detect[1]) {
 		aotg_uhost_mon1 = aotg_uhost_mon_alloc();
@@ -282,6 +285,9 @@ void aotg_uhost_mon_init(struct work_struct *w)
 		wake_lock_init(&aotg_uhost_mon1->aotg_wake_lock, WAKE_LOCK_SUSPEND, "aotg_wake_lock1");
 		printk("start mon 1 ......\n");
 		mod_timer(&aotg_uhost_mon1->hotplug_timer, jiffies + msecs_to_jiffies(1000));
+    		if (aotg_udc_enable[1]){
+			aotg_udc_register(1);
+		}
 	}
 
 	return;
