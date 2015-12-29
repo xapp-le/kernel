@@ -70,6 +70,10 @@ static ssize_t store_mirror_to_hdmi(struct device *dev,
 	r = strtobool(buf, &mirror_to_hdmi);
 	if (r)
 		return r;
+	if(ofbi->id != 0)
+	{
+		return r;
+	}
 
 	if (!lock_fb_info(fbi))
 		return -ENODEV;

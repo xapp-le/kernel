@@ -505,40 +505,44 @@ void hdmi_send_uevent(bool data)
 			HDMI_DEBUG("parse_edid end\n");		
 			if(hdmi.data.hpd_en){	
 				switch_set_state(&hdev, 1);	
-				atomic_set(&hdmi_status, 1);
-			}
-			if(hdmi.dssdev != NULL 
-				&& hdmi.dssdev->driver != NULL 
-				&& hdmi.dssdev->driver->hot_plug_nodify){
-				hdmi.dssdev->driver->hot_plug_nodify(hdmi.dssdev,data);	
+				atomic_set(&hdmi_status, 1);			
+			}else{
+				if(hdmi.dssdev != NULL 
+					&& hdmi.dssdev->driver != NULL 
+					&& hdmi.dssdev->driver->hot_plug_nodify){
+					hdmi.dssdev->driver->hot_plug_nodify(hdmi.dssdev,data);	
+				}
 			}
 		}
 	}else{
 		if((atomic_read(&hdmi_status)==1)&&hdmi.data.send_uevent){
 			if(hdmi.data.hpd_en){
-				switch_set_state(&hdev, 0);	
-				atomic_set(&hdmi_status, 0);
-			}
-			if(hdmi.dssdev != NULL 
-				&& hdmi.dssdev->driver != NULL 
-				&& hdmi.dssdev->driver->hot_plug_nodify){
-				hdmi.dssdev->driver->hot_plug_nodify(hdmi.dssdev,data);	
-			}
+				switch_set_state(&hdev, 0);
+				atomic_set(&hdmi_status, 0);					
+			}else{
+				if(hdmi.dssdev != NULL 
+					&& hdmi.dssdev->driver != NULL 
+					&& hdmi.dssdev->driver->hot_plug_nodify){
+
+					hdmi.dssdev->driver->hot_plug_nodify(hdmi.dssdev,data);	
+				
+				}
+			}		
 		}	
 	}		
 	mutex_unlock(&hdmi.ip_data.lock);
 
 }
-
+static bool old_hotplug_state = false;
 void hdmi_cable_check(struct work_struct *work)
 {
 	/*HDMI_DEBUG("hdmi_cable_check  ~~~~~~~~\n");*/	
 	if(hdmi.data.cable_check_onoff){
-		if(hdmi.ip_data.ops->cable_check(&hdmi.ip_data)){		
-			hdmi_send_uevent(1);
-		}else{
-			hdmi_send_uevent(0);
-		}
+		bool new_hotplug_state = hdmi.ip_data.ops->cable_check(&hdmi.ip_data);
+		if(old_hotplug_state != new_hotplug_state){			
+			hdmi_send_uevent(new_hotplug_state);
+			old_hotplug_state = new_hotplug_state;
+		}		
 	}
 	queue_delayed_work(hdmi.ip_data.hdcp.wq, &hdmi_cable_check_work,
 				msecs_to_jiffies(2000));
@@ -1188,6 +1192,9 @@ static int platform_hdmihw_probe(struct platform_device *pdev)
 	hdmi.data.send_uevent = 1;
 	hdmi.edid.isHDMI = HDMI_HDMI;
 	is_probe_called = true;
+	if(is_hdmi_power_on){
+	 	old_hotplug_state = true;
+	}
 	return 0;
 	
 err2:

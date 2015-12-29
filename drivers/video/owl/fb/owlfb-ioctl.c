@@ -549,12 +549,12 @@ int owlfb_ioctl(struct fb_info *fbi, unsigned int cmd, unsigned long arg)
 			break;
 		}
 				
-		if(display->driver->get_resolution){
+		/*if(display->driver->get_resolution){
 			display->driver->get_resolution(display, &p.display_info.xres, &p.display_info.yres);
-		}else{
+		}else{*/
 			p.display_info.xres = fbdev->xres;
 			p.display_info.yres = fbdev->yres;
-		}
+		/*}*/
 		
 		p.display_info.virtual_xres = fbdev->xres;
 		p.display_info.virtual_yres = fbdev->yres;		

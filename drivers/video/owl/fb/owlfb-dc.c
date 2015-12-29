@@ -260,6 +260,26 @@ static int owlfb_dc_arrange_overlay(setup_dispc_data_t *psDispcData,
 	
 	return used_overlay_num;
 }
+static int owlfb_dc_check_frame_scale_by_display(struct owl_dss_device *dssdev,
+		struct owl_overlay_info *info)
+{
+	u16 dw, dh;
+	
+	dssdev->driver->get_resolution(dssdev,&dw,&dh);
+	
+	if(my_fbdev->xres == dw && my_fbdev->yres == dh)
+	{
+		return 0;
+	}
+	printk("dw %d  dh %d my_fbdev->xres %d ,my_fbdev->yres %d \n",dw, dh,my_fbdev->xres ,my_fbdev->yres);
+	printk("window (%d %d %d %d ) \n",info->pos_x,info->pos_y,info->out_width,info->out_height);
+	info->out_width = info->out_width * dw / my_fbdev->xres; 
+	info->out_height = info->out_height *  dh / my_fbdev->yres;
+			
+	info->pos_x =  info->pos_x * dw /  my_fbdev->xres;
+	info->pos_y =  info->pos_y * dh / my_fbdev->yres ;
+
+}
 
 static int hdmi_discard_frame = 0;
 
@@ -302,7 +322,10 @@ static int owlfb_dc_update_overlay(struct owl_disp_info * disp_info)
 		info.pos_x = layer->scn_win.x;
 		info.pos_y = layer->scn_win.y;
 		info.out_width = layer->scn_win.width;
-		info.out_height = layer->scn_win.height;	
+		info.out_height = layer->scn_win.height;
+		if (i < psDispcData->primary_display_layer_num) {
+			owlfb_dc_check_frame_scale_by_display(ovl->manager->device,&info);
+		}	
 				
 		info.rotation =	layer->rotate;
 		if(layer->fb.buffer_id != -1){
