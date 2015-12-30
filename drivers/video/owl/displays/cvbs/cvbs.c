@@ -364,8 +364,21 @@ static void cvbs_check_status (struct work_struct *work)
 		auto_detect_bit(CVBS_IN);
 		cvbs_irq_enable(CVBS_IN,true);
 	}
+	
 
-
+	if(cvbs_read_reg( TVOUT_EN) && cvbs_state ==CVBS_IN )
+	{
+			set_cvbs_status(&cdev, 1);
+			DEBUG_CVBS("set_cvbs_status is IN");
+	}
+	if(!(cvbs_read_reg( TVOUT_EN)) && cvbs_state ==CVBS_OUT )
+	{
+			set_cvbs_status(&cdev, 0);
+			DEBUG_CVBS("set_cvbs_status is OUT");
+	}
+		
+	queue_delayed_work(cvbs.wq, &cvbs_check_work,
+				msecs_to_jiffies(2000));
 }
 
 
