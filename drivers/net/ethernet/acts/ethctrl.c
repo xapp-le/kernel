@@ -3335,16 +3335,8 @@ static int ethernet_set_pin_mux(struct platform_device *pdev)
 
 	//printk("MFP_CTL30:0x%x\n", act_readl(MFP_CTL3));
     putl((getl(MFP_CTL3) | 0x1<<30) , MFP_CTL3);
-	//printk("MFP_CTL31:0x%x\n", act_readl(MFP_CTL3));
-	//pr_info("ethernet pinctrl select state successfully\n");
+	putl((getl(PAD_DRV0) & 0xffff3fff) , PAD_DRV0); 
 
-	
-	//pr_info("ethernet pinctrl select state successfully\n");
-
-	putl((getl(PAD_DRV0) & 0xffff3fff) | 0x8000, PAD_DRV0);
-	//printk("PAD_DRV0:0x%x\n", act_readl(PAD_DRV0));
-
-	
 	return ret;
 
 error:
