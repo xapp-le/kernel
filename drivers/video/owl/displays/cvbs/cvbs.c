@@ -335,7 +335,8 @@ static void do_cvbs_in(struct work_struct *work)
 	DEBUG_CVBS("[%s start]\n", __func__);
 	if(cvbs.hot_plugin_enable)
 	{
-		set_cvbs_status(&cdev, 1);	
+		set_cvbs_status(&cdev, 1);
+		enable_cvbs_output();	
 	}		
 }
 
@@ -345,6 +346,7 @@ static void do_cvbs_out(struct work_struct *work)
 		if(cvbs.hot_plugin_enable)
 		{
 			set_cvbs_status(&cdev, 0);	
+			disable_cvbs_output();
 		}
 
 }

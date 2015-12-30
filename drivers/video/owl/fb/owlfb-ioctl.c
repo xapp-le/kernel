@@ -738,6 +738,9 @@ int owlfb_ioctl(struct fb_info *fbi, unsigned int cmd, unsigned long arg)
 	case OWLFB_CVBS_OFF:{
 		printk("ioctl OWLFB_CVBS_OFF\n");
 		atomic_set(&want_close_external_devices,true);
+		unlock_fb_info(fbi);
+		msleep(500);   
+		lock_fb_info(fbi);
 		break;
 	}
 	

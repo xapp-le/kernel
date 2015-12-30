@@ -763,7 +763,13 @@ void owldss_hdmi_display_get_overscan(struct owl_dss_device *dssdev, u16 * over_
 
 int owldss_hdmi_read_edid(struct owl_dss_device *dssdev, u8 * buffer , int len)
 {
-	int r = read_edid(buffer,len);
+	
+  int r = owldss_hdmi_display_get_cable_status(dssdev);
+  if(!r){
+         printk("owldss_hdmi_read_edid ~~~ error hdmi not connected \n");
+         return r;
+       }
+    r = read_edid(buffer,len);
 	if(r <= 0){
 		printk("owldss_hdmi_read_edid ~~~ error\n");
 	}
