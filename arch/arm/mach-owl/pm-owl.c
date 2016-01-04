@@ -690,6 +690,8 @@ int c_check_ddr_checksum(void)
 	return 0;
 }
 
+void owl_switch_jtag(void);
+
 static int owl_cpu_suspend(unsigned long cpu_state)
 {
 	static const ulong sc_i2c_iobase_tbl[] = {
@@ -705,7 +707,6 @@ static int owl_cpu_suspend(unsigned long cpu_state)
 	uint pmic_bus_num, pmic_addr, pmic_type;
 	ulong pmic_bus_iobase;
 
-//    switch_jtag();
 	c_check_ddr_checksum();
 	c_save_ddr_train_area();
 	
@@ -727,6 +728,9 @@ static int owl_cpu_suspend(unsigned long cpu_state)
 	default:
 		while(1);
 	}
+
+	/* switch jtag */
+   owl_switch_jtag();
 
 	memcpy((void *)func, (void *)owl_finish_suspend, 0x1000);
 	flush_cache_all();
