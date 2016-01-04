@@ -1580,37 +1580,37 @@ static void owlfb_hotplug_notify(struct owl_dss_device *dssdev, int state)
 {
 	
 	struct owl_overlay_manager *external_mgr = owl_dss_get_overlay_manager(OWL_DSS_OVL_MGR_EXTERNAL);
-	int vid ;	
-	struct owlfb_info *ofbi = FB2OFB(external_mgr->link_fbi);
-	struct owlfb_device *fbdev = ofbi->fbdev;
-	struct fb_info *fbi = fbdev->fbs[0];
-	
-	
-	if(external_mgr->device->type == dssdev->type)
-		{
-			fbi=fbdev->fbs[1];
-			printk("external_mgr is fb1\n");
-		}
-	
-	 
+	int vid ;		 
 	printk("owlfb_hotplug_notify %d ~~~~~~ \n",state);	
 	if(state == 1){
 		dssdev->driver->disable(dssdev);
 		dssdev->driver->get_vid(dssdev,&vid);
 		dssdev->driver->set_vid(dssdev,vid);
 		dssdev->driver->enable(dssdev);
-		owlfb_build_modelist(fbi,dssdev);
-		
-	
+			
 	}else{
 		dssdev->driver->disable(dssdev);
 	}	
 #ifdef CONFIG_FB_MAP_TO_DE
 	printk("owlfb_hotplug_notify owlfb_apply_changes \n");
 	if(external_mgr != NULL && external_mgr->link_fbi != NULL){	
-		owlfb_get_mem_region(FB2OFB(external_mgr->link_fbi)->region);
-		owlfb_apply_changes(external_mgr->link_fbi, 0);
-		owlfb_put_mem_region(FB2OFB(external_mgr->link_fbi)->region);
+		if(state)
+			{
+				struct owlfb_info *ofbi = FB2OFB(external_mgr->link_fbi);
+				struct owlfb_device *fbdev = ofbi->fbdev;
+				struct fb_info *fbi = fbdev->fbs[0];
+				
+				if(external_mgr->device->type == dssdev->type)
+				{
+					fbi=fbdev->fbs[1];
+					printk("external_mgr is fb1\n");
+				}
+				owlfb_build_modelist(fbi,dssdev);	
+			}	
+		
+			owlfb_get_mem_region(FB2OFB(external_mgr->link_fbi)->region);
+			owlfb_apply_changes(external_mgr->link_fbi, 0);
+			owlfb_put_mem_region(FB2OFB(external_mgr->link_fbi)->region);	
 	}
 #endif
 

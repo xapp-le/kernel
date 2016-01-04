@@ -271,8 +271,8 @@ static int owlfb_dc_check_frame_scale_by_display(struct owl_dss_device *dssdev,
 	{
 		return 0;
 	}
-	printk("dw %d  dh %d my_fbdev->xres %d ,my_fbdev->yres %d \n",dw, dh,my_fbdev->xres ,my_fbdev->yres);
-	printk("window (%d %d %d %d ) \n",info->pos_x,info->pos_y,info->out_width,info->out_height);
+	//printk("dw %d  dh %d my_fbdev->xres %d ,my_fbdev->yres %d \n",dw, dh,my_fbdev->xres ,my_fbdev->yres);
+	//printk("window (%d %d %d %d ) \n",info->pos_x,info->pos_y,info->out_width,info->out_height);
 	info->out_width = info->out_width * dw / my_fbdev->xres; 
 	info->out_height = info->out_height *  dh / my_fbdev->yres;
 			
