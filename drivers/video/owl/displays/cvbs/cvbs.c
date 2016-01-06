@@ -77,7 +77,7 @@ struct cvbs_info cvbs;
 
 static bool first_status = false;
 static bool first_hpt = true;
-static int  cvbs_state = 0;
+atomic_t cvbs_connected_state = ATOMIC_INIT(0);
 static DEFINE_MUTEX(cvbs_setting_mutex);
 
 static struct work_struct cvbs_in_work;
@@ -273,6 +273,7 @@ static void auto_detect_bit(int flag)
 
 void enable_cvbs_output(void)
 {
+	
 	cvbs_write_reg(TVOUT_EN,cvbs_read_reg(TVOUT_EN) | TVOUT_EN_CVBS_EN);
 	cvbs_write_reg(TVOUT_OCR,(cvbs_read_reg(TVOUT_OCR) | TVOUT_OCR_DAC3 | TVOUT_OCR_INREN) &
 		~TVOUT_OCR_DACOUT);
@@ -280,11 +281,13 @@ void enable_cvbs_output(void)
 	cvbs_irq_enable(CVBS_IN,true);
 }
 
-  void disable_cvbs_output(void)
-{
-	cvbs_write_reg(TVOUT_EN,cvbs_read_reg(TVOUT_EN) &  ~TVOUT_EN_CVBS_EN);
+void disable_cvbs_output(void)
+{	
 	cvbs_write_reg(TVOUT_OCR,cvbs_read_reg(TVOUT_OCR) & ~(TVOUT_OCR_DAC3 | TVOUT_OCR_INREN));
-
+	cvbs_write_reg(TVOUT_EN,cvbs_read_reg(TVOUT_EN) &  ~TVOUT_EN_CVBS_EN);
+	
+	auto_detect_bit(CVBS_OUT);
+	cvbs_irq_enable(CVBS_OUT,true);
 }
 
 
@@ -295,40 +298,58 @@ static irqreturn_t cvbs_irq_handler(int irq, void *data)
 	
 	
 			//²åÈë	
-		if (cvbs_pending(CVBS_IN))
-		{
-		cvbs_state = CVBS_IN;
+	if (cvbs_pending(CVBS_IN))
+	{
 		DEBUG_CVBS("CVBS is in \n");
 		cvbs_irq_enable(CVBS_IN,false);
 		cvbs_irq_enable(CVBS_OUT,true);
 						
-		cvbs_clear_pending(CVBS_IN);  
-		schedule_work(&cvbs_in_work);					
-		auto_detect_bit(CVBS_OUT);				
+		cvbs_clear_pending(CVBS_IN); 
+
+		schedule_work(&cvbs_in_work);
+		atomic_set(&cvbs_connected_state,1);			
+	
+		auto_detect_bit(CVBS_OUT);
 	}
  if (cvbs_pending(CVBS_OUT))
 	{
-		cvbs_state = CVBS_OUT;
 		DEBUG_CVBS("CVBS is out \n"); 
 		cvbs_irq_enable(CVBS_OUT,false);
-		cvbs_irq_enable(CVBS_IN,true);						 
+		cvbs_irq_enable(CVBS_IN,true);	
+							 
 		cvbs_clear_pending(CVBS_OUT);
-		schedule_work(&cvbs_out_work);	
-		auto_detect_bit(CVBS_IN);					
+		
+		schedule_work(&cvbs_out_work);
+		atomic_set(&cvbs_connected_state,0);
+		
+		auto_detect_bit(CVBS_IN);	
+					
 	}
 	
 	DEBUG_CVBS("[%s end]\n", __func__);	
 	return IRQ_HANDLED;
 }
 
-static set_cvbs_status(struct switch_dev *cdev, int state)
+
+static int  cvbs_uevent_state = -1;
+static void set_cvbs_status(struct switch_dev *cdev, int state)
 {
+	printk("cvbs_uevent_state = %d , state=%d\n",cvbs_uevent_state,state);
+	if(cvbs_uevent_state == state){
+		return; 
+	}
+	
 	switch_set_state(cdev, state);
+	
+#ifdef CONFIG_FB_MAP_TO_DE	
 	if(cvbs.dssdev != NULL 
 		&& cvbs.dssdev->driver != NULL 
 		&& cvbs.dssdev->driver->hot_plug_nodify){
 		cvbs.dssdev->driver->hot_plug_nodify(cvbs.dssdev,state);	
-	}	
+	}
+#endif 
+
+	cvbs_uevent_state = state;
 }
 static void do_cvbs_in(struct work_struct *work) 
 {
@@ -336,7 +357,6 @@ static void do_cvbs_in(struct work_struct *work)
 	if(cvbs.hot_plugin_enable)
 	{
 		set_cvbs_status(&cdev, 1);
-		enable_cvbs_output();	
 	}		
 }
 
@@ -346,41 +366,18 @@ static void do_cvbs_out(struct work_struct *work)
 		if(cvbs.hot_plugin_enable)
 		{
 			set_cvbs_status(&cdev, 0);	
-			disable_cvbs_output();
 		}
 
 }
 
 static void cvbs_check_status (struct work_struct *work) 
 {
-	if (first_status)
-	{
-		set_cvbs_status(&cdev, 0);	
-		first_status=false;
-	}
 	if (first_hpt)
 	{
 		first_hpt=false;
 		auto_detect_bit(CVBS_IN);
 		cvbs_irq_enable(CVBS_IN,true);
 	}
-	
-
-	if(cvbs_read_reg( TVOUT_EN) && cvbs_state ==CVBS_IN )
-	{
-			
-			switch_set_state(&cdev, 1);
-			DEBUG_CVBS("set_cvbs_status is IN");
-	}
-	if(!(cvbs_read_reg( TVOUT_EN)) && cvbs_state ==CVBS_OUT )
-	{
-		
-			switch_set_state(&cdev, 0);
-			DEBUG_CVBS("set_cvbs_status is OUT");
-	}
-		
-	queue_delayed_work(cvbs.wq, &cvbs_check_work,
-				msecs_to_jiffies(2000));
 }
 
 
@@ -595,14 +592,13 @@ void owldss_cvbs_display_enable_hpd(struct owl_dss_device *dssdev, bool enable)
 {
 	if (enable)
 	{
-		if (cvbs_state==CVBS_IN)
+		if (atomic_read(&cvbs_connected_state) == 1)
 		{
-		set_cvbs_status(&cdev, 1);	
+		   switch_set_state(&cdev, 1);
 		}
 	}else
 	{	
-		set_cvbs_status(&cdev, 0);	
-		
+		switch_set_state(&cdev, 0);		
 	}
 }
 
@@ -636,11 +632,11 @@ int owldss_cvbs_display_enable(struct owl_dss_device *dssdev)
 	}
 		
 	
-	if( cvbs_state==CVBS_IN)
+	if(atomic_read(&cvbs_connected_state) == 1)
 	{
 		configure_cvbs(cvbs.current_vid);
 		enable_cvbs_output();
-		DEBUG_CVBS("cvbs_boot_inited vid 1 =%d\n",cvbs.current_vid);
+		DEBUG_CVBS("cvbs_boot_inited vid  =%d\n",cvbs.current_vid);
 		
 		r = dss_mgr_enable(mgr);
 	
@@ -670,7 +666,7 @@ void owldss_cvbs_display_disable(struct owl_dss_device *dssdev)
 	dss_mgr_disable(mgr);
 
 	owl_dss_stop_device(dssdev);
-	mdelay(200);
+	msleep(350);
 	mutex_unlock(&cvbs.lock);	
 }
 
@@ -685,8 +681,6 @@ int owldss_cvbs_resume(struct owl_dss_device *dssdev)
 		auto_detect_bit(CVBS_OUT);
 		cvbs_irq_enable(CVBS_IN,true);	
 		cvbs_irq_enable(CVBS_OUT,true);	
-		queue_delayed_work(cvbs.wq, &cvbs_check_work,
-				msecs_to_jiffies(2000));
 		
 	}
 	return 0;
@@ -700,7 +694,7 @@ int owldss_cvbs_suspend(struct owl_dss_device *dssdev)
 		cvbs_irq_enable(CVBS_OUT,false);
 		cancel_work_sync(&cvbs_in_work);
 		cancel_work_sync(&cvbs_out_work);
-		cancel_delayed_work_sync(&cvbs_check_work);
+		
 	}
 	return 0;
 }
@@ -827,6 +821,11 @@ static int owl_cvbs_probe(struct platform_device *pdev)
 	if(!enable)
 	{
 		first_status = true;
+		atomic_set(&cvbs_connected_state,0);
+		cvbs_uevent_state=0;
+	}else{
+		atomic_set(&cvbs_connected_state,1);
+		cvbs_uevent_state=1;
 	}
 	cvbs.wq = create_workqueue("atm705a-cvbs");
 	

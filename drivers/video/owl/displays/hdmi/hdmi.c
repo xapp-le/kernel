@@ -541,6 +541,13 @@ void hdmi_cable_check(struct work_struct *work)
 		bool new_hotplug_state = hdmi.ip_data.ops->cable_check(&hdmi.ip_data);
 		if(old_hotplug_state != new_hotplug_state){			
 			hdmi_send_uevent(new_hotplug_state);
+			
+			if(!hdmi.data.hpd_en){
+				if(hdmi.ip_data.settings.hdmi_mode == HDMI_HDMI){
+					switch_set_state(&hdev_audio, new_hotplug_state ? 1: 2);
+				}
+			}
+			
 			old_hotplug_state = new_hotplug_state;
 		}		
 	}
