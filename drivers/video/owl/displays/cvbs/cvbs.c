@@ -2,7 +2,7 @@
  * linux/drivers/video/owl/dss/lcdc.c
  *
  * Copyright (C) 2009 Actions Corporation
- * Author: Xieshsh <wanghui@actions-semi.com>
+ * Author: Xieshsh <xieshsh@artekmicro.com>
  *
  * Some code and ideas taken from drivers/video/owl/ driver
  * by leopard.
@@ -277,8 +277,7 @@ void enable_cvbs_output(void)
 	cvbs_write_reg(TVOUT_EN,cvbs_read_reg(TVOUT_EN) | TVOUT_EN_CVBS_EN);
 	cvbs_write_reg(TVOUT_OCR,(cvbs_read_reg(TVOUT_OCR) | TVOUT_OCR_DAC3 | TVOUT_OCR_INREN) &
 		~TVOUT_OCR_DACOUT);
-	auto_detect_bit(CVBS_IN);
-	cvbs_irq_enable(CVBS_IN,true);
+
 }
 
 void disable_cvbs_output(void)
@@ -286,8 +285,7 @@ void disable_cvbs_output(void)
 	cvbs_write_reg(TVOUT_OCR,cvbs_read_reg(TVOUT_OCR) & ~(TVOUT_OCR_DAC3 | TVOUT_OCR_INREN));
 	cvbs_write_reg(TVOUT_EN,cvbs_read_reg(TVOUT_EN) &  ~TVOUT_EN_CVBS_EN);
 	
-	auto_detect_bit(CVBS_OUT);
-	cvbs_irq_enable(CVBS_OUT,true);
+
 }
 
 
@@ -367,7 +365,7 @@ static void do_cvbs_out(struct work_struct *work)
 		{
 			set_cvbs_status(&cdev, 0);	
 		}
-
+		disable_cvbs_output();
 }
 
 static void cvbs_check_status (struct work_struct *work) 
@@ -444,7 +442,7 @@ void configure_ntsc(void)//ntsc(480i),pll1:432M,pll0:594/1.001
 			   CVBS_AL_SEPO_ALSP(0x15));	
 
 	cvbs_write_reg(CVBS_AL_SEPE,(cvbs_read_reg(CVBS_AL_SEPE) & (~CVBS_AL_SEPE_ALEPEF_MASK)) |
-			   CVBS_AL_SEPE_ALEPEF(0x20b)); //0x20b 0x20d
+			   CVBS_AL_SEPE_ALEPEF(0x205)); //0x20b 0x20d 208
 	cvbs_write_reg(CVBS_AL_SEPE,(cvbs_read_reg(CVBS_AL_SEPE) & (~CVBS_AL_SEPE_ALSPEF_MASK)) |
 			   CVBS_AL_SEPE_ALSPEF(0x11c));
 
@@ -590,16 +588,31 @@ static void cvbs_boot_inited(void)
 
 void owldss_cvbs_display_enable_hpd(struct owl_dss_device *dssdev, bool enable)
 {
+	int val;
+	mutex_lock(&cvbs.lock);
 	if (enable)
-	{
-		if (atomic_read(&cvbs_connected_state) == 1)
-		{
-		   switch_set_state(&cdev, 1);
-		}
+	{	 
+
+			val = cvbs_read_reg(TVOUT_OCR);	
+			
+			cvbs_write_reg( TVOUT_OCR,0x0);
+			 
+			cvbs_write_reg(TVOUT_OCR , TVOUT_OCR_PI_ADEN | TVOUT_OCR_PO_ADEN);
+		
+			mdelay(600);
+			if ((atomic_read(&cvbs_connected_state) == 1) && (cvbs_read_reg(TVOUT_STA) & TVOUT_STA_DAC3ILS))
+			{
+		   set_cvbs_status(&cdev, 1);		
+			}
+			cvbs_write_reg(TVOUT_OCR,val);
+			cvbs_irq_enable(CVBS_IN,true);	
 	}else
-	{	
-		switch_set_state(&cdev, 0);		
-	}
+		{	
+			set_cvbs_status(&cdev, 0);
+			cvbs_irq_enable(CVBS_IN,false);	
+			cvbs_irq_enable(CVBS_OUT,false);			
+		}
+	mutex_unlock(&cvbs.lock);
 }
 
 
@@ -811,6 +824,9 @@ static int owl_cvbs_probe(struct platform_device *pdev)
 		DEBUG_CVBS("get_cvbs_data error\n");
 		return -1;
 	}
+	r = switch_dev_register(&cdev);
+	if (r)
+		goto err1;
 	
 	cvbs_boot_inited();
 	
@@ -823,9 +839,12 @@ static int owl_cvbs_probe(struct platform_device *pdev)
 		first_status = true;
 		atomic_set(&cvbs_connected_state,0);
 		cvbs_uevent_state=0;
+		switch_set_state(&cdev, 0);
 	}else{
 		atomic_set(&cvbs_connected_state,1);
 		cvbs_uevent_state=1;
+		switch_set_state(&cdev, 1);
+		
 	}
 	cvbs.wq = create_workqueue("atm705a-cvbs");
 	
@@ -836,13 +855,7 @@ static int owl_cvbs_probe(struct platform_device *pdev)
 	INIT_DELAYED_WORK(&cvbs_check_work, cvbs_check_status);
 	
 	queue_delayed_work(cvbs.wq, &cvbs_check_work,
-				msecs_to_jiffies(3000));
-	
-
-	
-	r = switch_dev_register(&cdev);
-	if (r)
-		goto err1;
+				msecs_to_jiffies(2000));
 	
 	DEBUG_CVBS(" owl_cvbs_probe is OK!\n");
 	cvbs.is_init = true;
