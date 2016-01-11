@@ -2813,8 +2813,8 @@ DO_FINISH_TASK:
 				acthcd->ep0_block_cnt++;
 				//ACT_HCD_DBG
 				if ((acthcd->ep0_block_cnt % 10) == 0) {
-					ACT_HCD_DBG
-					printk("cnt:%d\n", acthcd->ep0_block_cnt);
+					//ACT_HCD_DBG
+					//printk("cnt:%d\n", acthcd->ep0_block_cnt);
 					acthcd->ep0_block_cnt = 0;
 					//aotg_hub_urb_dequeue(hcd, acthcd->active_ep0->q->urb, -ETIMEDOUT);
 				}
