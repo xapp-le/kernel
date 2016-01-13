@@ -630,6 +630,7 @@ int owldss_cvbs_display_enable(struct owl_dss_device *dssdev)
 	DEBUG_CVBS("ENTER cvbs_display_enable\n");
 	if(cvbs_read_reg(TVOUT_EN))
 		{
+			dss_mgr_enable(mgr);
 			return 0;
 		}
 	mutex_lock(&cvbs.lock);
