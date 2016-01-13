@@ -290,12 +290,10 @@ void disable_cvbs_output(void)
 
 
 
-static irqreturn_t cvbs_irq_handler(int irq, void *data)
+static irqreturn_t cvbs_irq_handler(int irq)
 {
 	DEBUG_CVBS("[%s start]\n", __func__);
 	
-	
-			//²åÈë	
 	if (cvbs_pending(CVBS_IN))
 	{
 		DEBUG_CVBS("CVBS is in \n");
@@ -331,8 +329,7 @@ static irqreturn_t cvbs_irq_handler(int irq, void *data)
 
 static int  cvbs_uevent_state = -1;
 static void set_cvbs_status(struct switch_dev *cdev, int state)
-{
-	printk("cvbs_uevent_state = %d , state=%d\n",cvbs_uevent_state,state);
+{	
 	if(cvbs_uevent_state == state){
 		return; 
 	}
@@ -365,7 +362,6 @@ static void do_cvbs_out(struct work_struct *work)
 		{
 			set_cvbs_status(&cdev, 0);	
 		}
-		disable_cvbs_output();
 }
 
 static void cvbs_check_status (struct work_struct *work) 
@@ -586,9 +582,14 @@ static void cvbs_boot_inited(void)
        }      
 }
 
+static int  cvbs_hpd_state = -1;
 void owldss_cvbs_display_enable_hpd(struct owl_dss_device *dssdev, bool enable)
 {
 	int val;
+		if(cvbs_hpd_state == enable){
+		return; 
+	}
+	
 	mutex_lock(&cvbs.lock);
 	if (enable)
 	{	 
@@ -600,19 +601,18 @@ void owldss_cvbs_display_enable_hpd(struct owl_dss_device *dssdev, bool enable)
 			cvbs_write_reg(TVOUT_OCR , TVOUT_OCR_PI_ADEN | TVOUT_OCR_PO_ADEN);
 		
 			mdelay(600);
-			if ((atomic_read(&cvbs_connected_state) == 1) && (cvbs_read_reg(TVOUT_STA) & TVOUT_STA_DAC3ILS))
-			{
-		   set_cvbs_status(&cdev, 1);		
-			}
-			cvbs_write_reg(TVOUT_OCR,val);
-			cvbs_irq_enable(CVBS_IN,true);	
+
+			cvbs_write_reg(TVOUT_OCR,0x300);
+			cvbs_irq_enable(CVBS_IN,true);				
 	}else
 		{	
+			msleep(500);
 			set_cvbs_status(&cdev, 0);
 			cvbs_irq_enable(CVBS_IN,false);	
 			cvbs_irq_enable(CVBS_OUT,false);			
 		}
 	mutex_unlock(&cvbs.lock);
+	cvbs_hpd_state = enable;
 }
 
 
@@ -628,7 +628,10 @@ int owldss_cvbs_display_enable(struct owl_dss_device *dssdev)
 	timings = &dssdev->timings;	
 
 	DEBUG_CVBS("ENTER cvbs_display_enable\n");
-
+	if(cvbs_read_reg(TVOUT_EN))
+		{
+			return 0;
+		}
 	mutex_lock(&cvbs.lock);
 
     	if (mgr == NULL) {
@@ -648,6 +651,7 @@ int owldss_cvbs_display_enable(struct owl_dss_device *dssdev)
 	if(atomic_read(&cvbs_connected_state) == 1)
 	{
 		configure_cvbs(cvbs.current_vid);
+		msleep(500);
 		enable_cvbs_output();
 		DEBUG_CVBS("cvbs_boot_inited vid  =%d\n",cvbs.current_vid);
 		

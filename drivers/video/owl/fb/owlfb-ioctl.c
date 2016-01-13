@@ -730,9 +730,6 @@ int owlfb_ioctl(struct fb_info *fbi, unsigned int cmd, unsigned long arg)
 			device->driver->enable(device);
 		}
 		
-		unlock_fb_info(fbi);
-		msleep(500);
-		lock_fb_info(fbi);
 		break;
 	}	
 	case OWLFB_CVBS_OFF:{
