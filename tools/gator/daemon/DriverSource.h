@@ -1,5 +1,5 @@
 /**
- * Copyright (C) ARM Limited 2010-2014. All rights reserved.
+ * Copyright (C) ARM Limited 2010-2015. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -14,6 +14,7 @@
 
 #include "Source.h"
 
+class Buffer;
 class Fifo;
 
 class DriverSource : public Source {
@@ -37,6 +38,10 @@ public:
 	static int writeReadDriver(const char *path, int64_t *value);
 
 private:
+	static void *bootstrapThreadStatic(void *arg);
+	void bootstrapThread();
+
+	Buffer *mBuffer;
 	Fifo *mFifo;
 	sem_t *const mSenderSem;
 	sem_t *const mStartProfile;

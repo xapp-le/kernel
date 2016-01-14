@@ -494,6 +494,7 @@ static void adf_obj_destroy(struct adf_obj *obj, struct idr *idr)
 		struct adf_event_refcount *refcount =
 				container_of(node, struct adf_event_refcount,
 						node);
+		rb_erase(&refcount->node, &obj->event_refcount);
 		kfree(refcount);
 		node = rb_first(&obj->event_refcount);
 	}
@@ -612,6 +613,10 @@ void adf_device_destroy(struct adf_device *dev)
 	}
 	mutex_destroy(&dev->post_lock);
 	mutex_destroy(&dev->client_lock);
+
+	if (dev->timeline)
+		sync_timeline_destroy(&dev->timeline->obj);
+
 	adf_obj_destroy(&dev->base, &adf_devices);
 }
 EXPORT_SYMBOL(adf_device_destroy);

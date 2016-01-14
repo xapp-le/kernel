@@ -1,5 +1,5 @@
 /**
- * Copyright (C) ARM Limited 2010-2014. All rights reserved.
+ * Copyright (C) ARM Limited 2010-2015. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -14,25 +14,28 @@
 #include <unistd.h>
 #include <sys/prctl.h>
 
-#include "Logging.h"
 #include "CapturedXML.h"
-#include "SessionData.h"
-#include "LocalCapture.h"
-#include "Sender.h"
-#include "OlyUtility.h"
-#include "OlySocket.h"
-#include "StreamlineSetup.h"
+#include "Command.h"
 #include "ConfigurationXML.h"
 #include "Driver.h"
-#include "PerfSource.h"
 #include "DriverSource.h"
-#include "UserSpaceSource.h"
 #include "ExternalSource.h"
+#include "FtraceSource.h"
+#include "LocalCapture.h"
+#include "Logging.h"
+#include "OlySocket.h"
+#include "OlyUtility.h"
+#include "PerfSource.h"
+#include "Sender.h"
+#include "SessionData.h"
+#include "StreamlineSetup.h"
+#include "UserSpaceSource.h"
 
 static sem_t haltPipeline, senderThreadStarted, startProfile, senderSem; // Shared by Child and spawned threads
 static Source *primarySource = NULL;
-static Source *userSpaceSource = NULL;
 static Source *externalSource = NULL;
+static Source *userSpaceSource = NULL;
+static Source *ftraceSource = NULL;
 static Sender* sender = NULL;        // Shared by Child.cpp and spawned threads
 Child* child = NULL;                 // shared by Child.cpp and main.cpp
 
@@ -147,16 +150,20 @@ static void *senderThread(void *) {
 	prctl(PR_SET_NAME, (unsigned long)&"gatord-sender", 0, 0, 0);
 	sem_wait(&haltPipeline);
 
-	while (!primarySource->isDone() || (userSpaceSource != NULL && !userSpaceSource->isDone()) || (externalSource != NULL && !externalSource->isDone())) {
+	while (!externalSource->isDone() ||
+	       (userSpaceSource != NULL && !userSpaceSource->isDone()) ||
+		   (ftraceSource != NULL && !ftraceSource->isDone()) ||
+	       !primarySource->isDone()) {
 		sem_wait(&senderSem);
 
-		primarySource->write(sender);
+		externalSource->write(sender);
 		if (userSpaceSource != NULL) {
 			userSpaceSource->write(sender);
 		}
-		if (externalSource != NULL) {
-			externalSource->write(sender);
+		if (ftraceSource != NULL) {
+			ftraceSource->write(sender);
 		}
+		primarySource->write(sender);
 	}
 
 	// write end-of-capture sequence
@@ -202,6 +209,13 @@ void Child::initialization() {
 void Child::endSession() {
 	gSessionData->mSessionIsActive = false;
 	primarySource->interrupt();
+	externalSource->interrupt();
+	if (userSpaceSource != NULL) {
+		userSpaceSource->interrupt();
+	}
+	if (ftraceSource != NULL) {
+		ftraceSource->interrupt();
+	}
 	sem_post(&haltPipeline);
 }
 
@@ -218,7 +232,7 @@ void Child::run() {
 	sender = new Sender(socket);
 
 	if (mNumConnections > 1) {
-		logg->logError(__FILE__, __LINE__, "Session already in progress");
+		logg->logError("Session already in progress");
 		handleException();
 	}
 
@@ -227,9 +241,9 @@ void Child::run() {
 
 	// Set up the driver; must be done after gSessionData->mPerfCounterType[] is populated
 	if (!gSessionData->perf.isSetup()) {
-	  primarySource = new DriverSource(&senderSem, &startProfile);
+		primarySource = new DriverSource(&senderSem, &startProfile);
 	} else {
-	  primarySource = new PerfSource(&senderSem, &startProfile);
+		primarySource = new PerfSource(&senderSem, &startProfile);
 	}
 
 	// Initialize all drivers
@@ -253,7 +267,7 @@ void Child::run() {
 		char* xmlString;
 		xmlString = util->readFromDisk(gSessionData->mSessionXMLPath);
 		if (xmlString == 0) {
-			logg->logError(__FILE__, __LINE__, "Unable to read session xml file: %s", gSessionData->mSessionXMLPath);
+			logg->logError("Unable to read session xml file: %s", gSessionData->mSessionXMLPath);
 			handleException();
 		}
 		gSessionData->parseSessionXML(xmlString);
@@ -265,14 +279,42 @@ void Child::run() {
 		free(xmlString);
 	}
 
+	if (gSessionData->kmod.isMaliCapture() && (gSessionData->mSampleRate == 0)) {
+		logg->logError("Mali counters are not supported with Sample Rate: None.");
+		handleException();
+	}
+
+	// Initialize ftrace source before child as it's slow and dependens on nothing else
+	// If initialized later, us gator with ftrace has time sync issues
+	if (gSessionData->ftraceDriver.countersEnabled()) {
+		ftraceSource = new FtraceSource(&senderSem);
+		if (!ftraceSource->prepare()) {
+			logg->logError("Unable to prepare userspace source for capture");
+			handleException();
+		}
+		ftraceSource->start();
+	}
+
 	// Must be after session XML is parsed
 	if (!primarySource->prepare()) {
-		logg->logError(__FILE__, __LINE__, "Unable to prepare for capture");
+		if (gSessionData->perf.isSetup()) {
+			logg->logError("Unable to communicate with the perf API, please ensure that CONFIG_TRACING and CONFIG_CONTEXT_SWITCH_TRACER are enabled. Please refer to README_Streamline.txt for more information.");
+		} else {
+			logg->logError("Unable to prepare gator driver for capture");
+		}
 		handleException();
 	}
 
 	// Sender thread shall be halted until it is signaled for one shot mode
 	sem_init(&haltPipeline, 0, gSessionData->mOneShot ? 0 : 2);
+
+	// Must be initialized before senderThread is started as senderThread checks externalSource
+	externalSource = new ExternalSource(&senderSem);
+	if (!externalSource->prepare()) {
+		logg->logError("Unable to prepare external source for capture");
+		handleException();
+	}
+	externalSource->start();
 
 	// Create the duration, stop, and sender threads
 	bool thread_creation_success = true;
@@ -280,29 +322,34 @@ void Child::run() {
 		thread_creation_success = false;
 	} else if (socket && pthread_create(&stopThreadID, NULL, stopThread, NULL)) {
 		thread_creation_success = false;
-	} else if (pthread_create(&senderThreadID, NULL, senderThread, NULL)){
+	} else if (pthread_create(&senderThreadID, NULL, senderThread, NULL)) {
 		thread_creation_success = false;
 	}
 
-	if (gSessionData->hwmon.countersEnabled()) {
+	bool startUSSource = false;
+	for (int i = 0; i < ARRAY_LENGTH(gSessionData->usDrivers); ++i) {
+		if (gSessionData->usDrivers[i]->countersEnabled()) {
+			startUSSource = true;
+		}
+	}
+	if (startUSSource) {
 		userSpaceSource = new UserSpaceSource(&senderSem);
 		if (!userSpaceSource->prepare()) {
-			logg->logError(__FILE__, __LINE__, "Unable to prepare for capture");
+			logg->logError("Unable to prepare userspace source for capture");
 			handleException();
 		}
 		userSpaceSource->start();
 	}
-	if (access("/tmp/gator", F_OK) == 0) {
-		externalSource = new ExternalSource(&senderSem);
-		if (!externalSource->prepare()) {
-			logg->logError(__FILE__, __LINE__, "Unable to prepare for capture");
-			handleException();
+
+	if (gSessionData->mAllowCommands && (gSessionData->mCaptureCommand != NULL)) {
+		pthread_t thread;
+		if (pthread_create(&thread, NULL, commandThread, NULL)) {
+			thread_creation_success = false;
 		}
-		externalSource->start();
 	}
 
 	if (!thread_creation_success) {
-		logg->logError(__FILE__, __LINE__, "Failed to create gator threads");
+		logg->logError("Failed to create gator threads");
 		handleException();
 	}
 
@@ -312,14 +359,14 @@ void Child::run() {
 	// Start profiling
 	primarySource->run();
 
-	if (externalSource != NULL) {
-		externalSource->join();
+	// Wait for the other threads to exit
+	if (ftraceSource != NULL) {
+		ftraceSource->join();
 	}
 	if (userSpaceSource != NULL) {
 		userSpaceSource->join();
 	}
-
-	// Wait for the other threads to exit
+	externalSource->join();
 	pthread_join(senderThreadID, NULL);
 
 	// Shutting down the connection should break the stop thread which is stalling on the socket recv() function
@@ -337,8 +384,9 @@ void Child::run() {
 
 	logg->logMessage("Profiling ended.");
 
-	delete externalSource;
+	delete ftraceSource;
 	delete userSpaceSource;
+	delete externalSource;
 	delete primarySource;
 	delete sender;
 	delete localCapture;

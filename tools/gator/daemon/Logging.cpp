@@ -1,5 +1,5 @@
 /**
- * Copyright (C) ARM Limited 2010-2014. All rights reserved.
+ * Copyright (C) ARM Limited 2010-2015. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -14,15 +14,15 @@
 #include <string.h>
 
 #ifdef WIN32
-#define MUTEX_INIT()	mLoggingMutex = CreateMutex(NULL, false, NULL);
-#define MUTEX_LOCK()	WaitForSingleObject(mLoggingMutex, 0xFFFFFFFF);
-#define MUTEX_UNLOCK()	ReleaseMutex(mLoggingMutex);
-#define snprintf		_snprintf
+#define MUTEX_INIT()    mLoggingMutex = CreateMutex(NULL, false, NULL);
+#define MUTEX_LOCK()    WaitForSingleObject(mLoggingMutex, 0xFFFFFFFF);
+#define MUTEX_UNLOCK()  ReleaseMutex(mLoggingMutex);
+#define snprintf _snprintf
 #else
 #include <pthread.h>
-#define MUTEX_INIT()	pthread_mutex_init(&mLoggingMutex, NULL)
-#define MUTEX_LOCK()	pthread_mutex_lock(&mLoggingMutex)
-#define MUTEX_UNLOCK()	pthread_mutex_unlock(&mLoggingMutex)
+#define MUTEX_INIT()    pthread_mutex_init(&mLoggingMutex, NULL)
+#define MUTEX_LOCK()    pthread_mutex_lock(&mLoggingMutex)
+#define MUTEX_UNLOCK()  pthread_mutex_unlock(&mLoggingMutex)
 #endif
 
 // Global thread-safe logging
@@ -39,12 +39,12 @@ Logging::Logging(bool debug) {
 Logging::~Logging() {
 }
 
-void Logging::logError(const char* file, int line, const char* fmt, ...) {
-	va_list	args;
+void Logging::_logError(const char *function, const char *file, int line, const char *fmt, ...) {
+	va_list args;
 
 	MUTEX_LOCK();
 	if (mDebug) {
-		snprintf(mErrBuf, sizeof(mErrBuf), "ERROR[%s:%d]: ", file, line);
+		snprintf(mErrBuf, sizeof(mErrBuf), "ERROR: %s(%s:%i): ", function, file, line);
 	} else {
 		mErrBuf[0] = 0;
 	}
@@ -59,12 +59,12 @@ void Logging::logError(const char* file, int line, const char* fmt, ...) {
 	MUTEX_UNLOCK();
 }
 
-void Logging::logMessage(const char* fmt, ...) {
+void Logging::_logMessage(const char *function, const char *file, int line, const char *fmt, ...) {
 	if (mDebug) {
-		va_list	args;
+		va_list args;
 
 		MUTEX_LOCK();
-		strcpy(mLogBuf, "INFO: ");
+		snprintf(mLogBuf, sizeof(mLogBuf), "INFO: %s(%s:%i): ", function, file, line);
 
 		va_start(args, fmt);
 		vsnprintf(mLogBuf + strlen(mLogBuf), sizeof(mLogBuf) - 2 - strlen(mLogBuf), fmt, args); //  subtract 2 for \n and \0

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) ARM Limited 2010-2014. All rights reserved.
+ * Copyright (C) ARM Limited 2010-2015. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -9,13 +9,21 @@
 #ifndef __OLY_SOCKET_H__
 #define __OLY_SOCKET_H__
 
+#include <stddef.h>
+
+#ifdef WIN32
+typedef int socklen_t;
+#else
+#include <sys/socket.h>
+#endif
+
 class OlySocket {
 public:
-  OlySocket(int port, const char* hostname);
-  OlySocket(int socketID);
 #ifndef WIN32
-  OlySocket(const char* path);
+  static int connect(const char* path, const size_t pathSize, const bool calculateAddrlen = false);
 #endif
+
+  OlySocket(int socketID);
   ~OlySocket();
 
   void closeSocket();
@@ -29,25 +37,28 @@ public:
 
 private:
   int mSocketID;
-
-  void createClientSocket(const char* hostname, int port);
 };
 
 class OlyServerSocket {
 public:
   OlyServerSocket(int port);
 #ifndef WIN32
-  OlyServerSocket(const char* path);
+  OlyServerSocket(const char* path, const size_t pathSize, const bool calculateAddrlen = false);
 #endif
   ~OlyServerSocket();
 
   int acceptConnection();
   void closeServerSocket();
 
+  int getFd() { return mFDServer; }
+
 private:
   int mFDServer;
 
   void createServerSocket(int port);
 };
+
+int socket_cloexec(int domain, int type, int protocol);
+int accept_cloexec(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 
 #endif //__OLY_SOCKET_H__

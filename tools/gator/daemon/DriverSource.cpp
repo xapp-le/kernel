@@ -1,32 +1,38 @@
 /**
- * Copyright (C) ARM Limited 2010-2014. All rights reserved.
+ * Copyright (C) ARM Limited 2010-2015. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
 
+// Define to get format macros from inttypes.h
 #define __STDC_FORMAT_MACROS
 
 #include "DriverSource.h"
 
 #include <fcntl.h>
 #include <inttypes.h>
+#include <sys/prctl.h>
 #include <unistd.h>
 
+#include "Buffer.h"
 #include "Child.h"
+#include "DynBuf.h"
 #include "Fifo.h"
 #include "Logging.h"
+#include "Proc.h"
 #include "Sender.h"
 #include "SessionData.h"
 
 extern Child *child;
 
-DriverSource::DriverSource(sem_t *senderSem, sem_t *startProfile) : mFifo(NULL), mSenderSem(senderSem), mStartProfile(startProfile), mBufferSize(0), mBufferFD(0), mLength(1) {
+DriverSource::DriverSource(sem_t *senderSem, sem_t *startProfile) : mBuffer(NULL), mFifo(NULL), mSenderSem(senderSem), mStartProfile(startProfile), mBufferSize(0), mBufferFD(0), mLength(1) {
 	int driver_version = 0;
 
+	mBuffer = new Buffer(0, FRAME_PERF_ATTRS, 4*1024*1024, senderSem);
 	if (readIntDriver("/dev/gator/version", &driver_version) == -1) {
-		logg->logError(__FILE__, __LINE__, "Error reading gator driver version");
+		logg->logError("Error reading gator driver version");
 		handleException();
 	}
 
@@ -34,7 +40,7 @@ DriverSource::DriverSource(sem_t *senderSem, sem_t *startProfile) : mFifo(NULL),
 	if (driver_version != PROTOCOL_VERSION) {
 		if ((driver_version > PROTOCOL_DEV) || (PROTOCOL_VERSION > PROTOCOL_DEV)) {
 			// One of the mismatched versions is development version
-			logg->logError(__FILE__, __LINE__,
+			logg->logError(
 				"DEVELOPMENT BUILD MISMATCH: gator driver version \"%d\" is not in sync with gator daemon version \"%d\".\n"
 				">> The following must be synchronized from engineering repository:\n"
 				">> * gator driver\n"
@@ -43,7 +49,7 @@ DriverSource::DriverSource(sem_t *senderSem, sem_t *startProfile) : mFifo(NULL),
 			handleException();
 		} else {
 			// Release version mismatch
-			logg->logError(__FILE__, __LINE__, 
+			logg->logError(
 				"gator driver version \"%d\" is different than gator daemon version \"%d\".\n"
 				">> Please upgrade the driver and daemon to the latest versions.", driver_version, PROTOCOL_VERSION);
 			handleException();
@@ -52,7 +58,7 @@ DriverSource::DriverSource(sem_t *senderSem, sem_t *startProfile) : mFifo(NULL),
 
 	int enable = -1;
 	if (readIntDriver("/dev/gator/enable", &enable) != 0 || enable != 0) {
-		logg->logError(__FILE__, __LINE__, "Driver already enabled, possibly a session is already in progress.");
+		logg->logError("Driver already enabled, possibly a session is already in progress.");
 		handleException();
 	}
 
@@ -62,7 +68,7 @@ DriverSource::DriverSource(sem_t *senderSem, sem_t *startProfile) : mFifo(NULL),
 	}
 
 	if (readIntDriver("/dev/gator/buffer_size", &mBufferSize) || mBufferSize <= 0) {
-		logg->logError(__FILE__, __LINE__, "Unable to read the driver buffer size");
+		logg->logError("Unable to read the driver buffer size");
 		handleException();
 	}
 }
@@ -87,6 +93,29 @@ bool DriverSource::prepare() {
 	return true;
 }
 
+void DriverSource::bootstrapThread() {
+	prctl(PR_SET_NAME, (unsigned long)&"gatord-proc", 0, 0, 0);
+
+	DynBuf printb;
+	DynBuf b1;
+	DynBuf b2;
+	// MonotonicStarted may not be not assigned yet
+	const uint64_t currTime = 0;//getTime() - gSessionData->mMonotonicStarted;
+
+	if (!readProcComms(currTime, mBuffer, &printb, &b1, &b2)) {
+		logg->logError("readProcComms failed");
+		handleException();
+	}
+
+	mBuffer->commit(currTime);
+	mBuffer->setDone();
+}
+
+void *DriverSource::bootstrapThreadStatic(void *arg) {
+	static_cast<DriverSource *>(arg)->bootstrapThread();
+	return NULL;
+}
+
 void DriverSource::run() {
 	// Get the initial pointer to the collect buffer
 	char *collectBuffer = mFifo->start();
@@ -96,33 +125,33 @@ void DriverSource::run() {
 
 	// Set the maximum backtrace depth
 	if (writeReadDriver("/dev/gator/backtrace_depth", &gSessionData->mBacktraceDepth)) {
-		logg->logError(__FILE__, __LINE__, "Unable to set the driver backtrace depth");
+		logg->logError("Unable to set the driver backtrace depth");
 		handleException();
 	}
 
 	// open the buffer which calls userspace_buffer_open() in the driver
-	mBufferFD = open("/dev/gator/buffer", O_RDONLY);
+	mBufferFD = open("/dev/gator/buffer", O_RDONLY | O_CLOEXEC);
 	if (mBufferFD < 0) {
-		logg->logError(__FILE__, __LINE__, "The gator driver did not set up properly. Please view the linux console or dmesg log for more information on the failure.");
+		logg->logError("The gator driver did not set up properly. Please view the linux console or dmesg log for more information on the failure.");
 		handleException();
 	}
 
 	// set the tick rate of the profiling timer
 	if (writeReadDriver("/dev/gator/tick", &gSessionData->mSampleRate) != 0) {
-		logg->logError(__FILE__, __LINE__, "Unable to set the driver tick");
+		logg->logError("Unable to set the driver tick");
 		handleException();
 	}
 
 	// notify the kernel of the response type
 	int response_type = gSessionData->mLocalCapture ? 0 : RESPONSE_APC_DATA;
 	if (writeDriver("/dev/gator/response_type", response_type)) {
-		logg->logError(__FILE__, __LINE__, "Unable to write the response type");
+		logg->logError("Unable to write the response type");
 		handleException();
 	}
 
 	// Set the live rate
 	if (writeReadDriver("/dev/gator/live_rate", &gSessionData->mLiveRate)) {
-		logg->logError(__FILE__, __LINE__, "Unable to set the driver live rate");
+		logg->logError("Unable to set the driver live rate");
 		handleException();
 	}
 
@@ -130,13 +159,19 @@ void DriverSource::run() {
 
 	// This command makes the driver start profiling by calling gator_op_start() in the driver
 	if (writeDriver("/dev/gator/enable", "1") != 0) {
-		logg->logError(__FILE__, __LINE__, "The gator driver did not start properly. Please view the linux console or dmesg log for more information on the failure.");
+		logg->logError("The gator driver did not start properly. Please view the linux console or dmesg log for more information on the failure.");
 		handleException();
 	}
 
 	lseek(mBufferFD, 0, SEEK_SET);
 
 	sem_post(mStartProfile);
+
+	pthread_t bootstrapThreadID;
+	if (pthread_create(&bootstrapThreadID, NULL, bootstrapThreadStatic, this) != 0) {
+		logg->logError("Unable to start the gator_bootstrap thread");
+		handleException();
+	}
 
 	// Collect Data
 	do {
@@ -156,7 +191,7 @@ void DriverSource::run() {
 		// In one shot mode, stop collection once all the buffers are filled
 		if (gSessionData->mOneShot && gSessionData->mSessionIsActive) {
 			if (bytesCollected == -1 || mFifo->willFill(bytesCollected)) {
-				logg->logMessage("One shot");
+				logg->logMessage("One shot (gator.ko)");
 				child->endSession();
 			}
 		}
@@ -164,6 +199,8 @@ void DriverSource::run() {
 	} while (bytesCollected > 0);
 
 	logg->logMessage("Exit collect data loop");
+
+	pthread_join(bootstrapThreadID, NULL);
 }
 
 void DriverSource::interrupt() {
@@ -174,7 +211,7 @@ void DriverSource::interrupt() {
 }
 
 bool DriverSource::isDone() {
-	return mLength <= 0;
+	return mLength <= 0 && (mBuffer == NULL || mBuffer->isDone());
 }
 
 void DriverSource::write(Sender *sender) {
@@ -182,12 +219,22 @@ void DriverSource::write(Sender *sender) {
 	if (data != NULL) {
 		sender->writeData(data, mLength, RESPONSE_APC_DATA);
 		mFifo->release();
+		// Assume the summary packet is in the first block received from the driver
+		gSessionData->mSentSummary = true;
+	}
+	if (mBuffer != NULL && !mBuffer->isDone()) {
+		mBuffer->write(sender);
+		if (mBuffer->isDone()) {
+			Buffer *buf = mBuffer;
+			mBuffer = NULL;
+			delete buf;
+		}
 	}
 }
 
 int DriverSource::readIntDriver(const char *fullpath, int *value) {
 	char data[40]; // Sufficiently large to hold any integer
-	const int fd = open(fullpath, O_RDONLY);
+	const int fd = open(fullpath, O_RDONLY | O_CLOEXEC);
 	if (fd < 0) {
 		return -1;
 	}
@@ -212,7 +259,7 @@ int DriverSource::readIntDriver(const char *fullpath, int *value) {
 
 int DriverSource::readInt64Driver(const char *fullpath, int64_t *value) {
 	char data[40]; // Sufficiently large to hold any integer
-	const int fd = open(fullpath, O_RDONLY);
+	const int fd = open(fullpath, O_RDONLY | O_CLOEXEC);
 	if (fd < 0) {
 		return -1;
 	}
@@ -227,7 +274,7 @@ int DriverSource::readInt64Driver(const char *fullpath, int64_t *value) {
 	char *endptr;
 	errno = 0;
 	*value = strtoll(data, &endptr, 10);
-	if (errno != 0 || *endptr != '\n') {
+	if (errno != 0 || (*endptr != '\n' && *endptr != '\0')) {
 		logg->logMessage("Invalid value in file %s", fullpath);
 		return -1;
 	}
@@ -236,7 +283,7 @@ int DriverSource::readInt64Driver(const char *fullpath, int64_t *value) {
 }
 
 int DriverSource::writeDriver(const char *fullpath, const char *data) {
-	int fd = open(fullpath, O_WRONLY);
+	int fd = open(fullpath, O_WRONLY | O_CLOEXEC);
 	if (fd < 0) {
 		return -1;
 	}

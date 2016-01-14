@@ -1,5 +1,5 @@
 /**
- * Copyright (C) ARM Limited 2013-2014. All rights reserved.
+ * Copyright (C) ARM Limited 2013-2015. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -16,6 +16,7 @@
 #include "Counter.h"
 #include "DriverSource.h"
 #include "Logging.h"
+#include "SessionData.h"
 
 // Claim all the counters in /dev/gator/events
 bool KMod::claimCounter(const Counter &counter) const {
@@ -46,10 +47,18 @@ void KMod::resetCounters() {
 	}
 }
 
+static const char ARM_MALI_MIDGARD[] = "ARM_Mali-Midgard_";
+static const char ARM_MALI_T[] = "ARM_Mali-T";
+
 void KMod::setupCounter(Counter &counter) {
 	char base[128];
 	char text[128];
 	snprintf(base, sizeof(base), "/dev/gator/events/%s", counter.getType());
+
+	if ((strncmp(counter.getType(), ARM_MALI_MIDGARD, sizeof(ARM_MALI_MIDGARD) - 1) == 0 ||
+	     strncmp(counter.getType(), ARM_MALI_T, sizeof(ARM_MALI_T) - 1) == 0)) {
+		mIsMaliCapture = true;
+	}
 
 	snprintf(text, sizeof(text), "%s/enabled", base);
 	int enabled = true;
@@ -58,10 +67,15 @@ void KMod::setupCounter(Counter &counter) {
 		return;
 	}
 
+	int value = 0;
 	snprintf(text, sizeof(text), "%s/key", base);
-	int key = 0;
-	DriverSource::readIntDriver(text, &key);
-	counter.setKey(key);
+	DriverSource::readIntDriver(text, &value);
+	counter.setKey(value);
+
+	snprintf(text, sizeof(text), "%s/cores", base);
+	if (DriverSource::readIntDriver(text, &value) == 0) {
+		counter.setCores(value);
+	}
 
 	snprintf(text, sizeof(text), "%s/event", base);
 	DriverSource::writeDriver(text, counter.getEvent());
@@ -69,13 +83,13 @@ void KMod::setupCounter(Counter &counter) {
 	if (access(text, F_OK) == 0) {
 		int count = counter.getCount();
 		if (DriverSource::writeReadDriver(text, &count) && counter.getCount() > 0) {
-			logg->logError(__FILE__, __LINE__, "Cannot enable EBS for %s:%i with a count of %d\n", counter.getType(), counter.getEvent(), counter.getCount());
+			logg->logError("Cannot enable EBS for %s:%i with a count of %d\n", counter.getType(), counter.getEvent(), counter.getCount());
 			handleException();
 		}
 		counter.setCount(count);
 	} else if (counter.getCount() > 0) {
 		ConfigurationXML::remove();
-		logg->logError(__FILE__, __LINE__, "Event Based Sampling is only supported with kernel versions 3.0.0 and higher with CONFIG_PERF_EVENTS=y, and CONFIG_HW_PERF_EVENTS=y. The invalid configuration.xml has been removed.\n");
+		logg->logError("Event Based Sampling is only supported with kernel versions 3.0.0 and higher with CONFIG_PERF_EVENTS=y, and CONFIG_HW_PERF_EVENTS=y. The invalid configuration.xml has been removed.\n");
 		handleException();
 	}
 }

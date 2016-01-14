@@ -1,5 +1,5 @@
 /**
- * Copyright (C) ARM Limited 2010-2014. All rights reserved.
+ * Copyright (C) ARM Limited 2010-2015. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -14,7 +14,7 @@
 #include "Buffer.h"
 #include "Source.h"
 
-// User space counters - currently just hwmon
+// User space counters
 class UserSpaceSource : public Source {
 public:
 	UserSpaceSource(sem_t *senderSem);

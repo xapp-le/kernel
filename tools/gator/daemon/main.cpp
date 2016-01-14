@@ -1,5 +1,5 @@
 /**
- * Copyright (C) ARM Limited 2010-2014. All rights reserved.
+ * Copyright (C) ARM Limited 2010-2015. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -19,26 +19,30 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "AnnotateListener.h"
+#include "CCNDriver.h"
 #include "Child.h"
-#include "KMod.h"
+#include "EventsXML.h"
 #include "Logging.h"
+#include "Monitor.h"
 #include "OlySocket.h"
 #include "OlyUtility.h"
 #include "SessionData.h"
-
-#define DEBUG false
+#include "Setup.h"
 
 extern Child* child;
 static int shutdownFilesystem();
 static pthread_mutex_t numSessions_mutex;
-static int numSessions = 0;
 static OlyServerSocket* sock = NULL;
+static Monitor monitor;
+static int numSessions = 0;
 static bool driverRunningAtStart = false;
 static bool driverMountedAtStart = false;
 
 struct cmdline_t {
+	char *module;
 	int port;
-	char* module;
+	bool update;
 };
 
 #define DEFAULT_PORT 8080
@@ -102,42 +106,7 @@ static void child_exit(int) {
 	}
 }
 
-static int udpPort(int port) {
-	int s;
-	struct sockaddr_in6 sockaddr;
-	int on;
-	int family = AF_INET6;
-
-	s = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
-	if (s == -1) {
-		family = AF_INET;
-		s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-		if (s == -1) {
-			logg->logError(__FILE__, __LINE__, "socket failed");
-			handleException();
-		}
-	}
-
-	on = 1;
-	if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char*)&on, sizeof(on)) != 0) {
-		logg->logError(__FILE__, __LINE__, "setsockopt failed");
-		handleException();
-	}
-
-	memset((void*)&sockaddr, 0, sizeof(sockaddr));
-	sockaddr.sin6_family = family;
-	sockaddr.sin6_port = htons(port);
-	sockaddr.sin6_addr = in6addr_any;
-	if (bind(s, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) < 0) {
-		logg->logError(__FILE__, __LINE__, "socket failed");
-		handleException();
-	}
-
-	return s;
-}
-
-#define UDP_ANS_PORT 30000
-#define UDP_REQ_PORT 30001
+static const int UDP_REQ_PORT = 30001;
 
 typedef struct {
 	char rviHeader[8];
@@ -149,50 +118,103 @@ typedef struct {
 	uint32_t ipAddress;
 	uint32_t defaultGateway;
 	uint32_t subnetMask;
-	uint32_t activeConnections; 
+	uint32_t activeConnections;
 } RVIConfigureInfo;
 
 static const char DST_REQ[] = { 'D', 'S', 'T', '_', 'R', 'E', 'Q', ' ', 0, 0, 0, 0x64 };
 
-static void* answerThread(void* pVoid) {
-	prctl(PR_SET_NAME, (unsigned long)&"gatord-discover", 0, 0, 0);
-	const struct cmdline_t * const cmdline = (struct cmdline_t *)pVoid;
-	RVIConfigureInfo dstAns;
-	int req = udpPort(UDP_REQ_PORT);
-	int ans = udpPort(UDP_ANS_PORT);
+class UdpListener {
+public:
+	UdpListener() : mDstAns(), mReq(-1) {}
 
-	// Format the answer buffer
-	memset(&dstAns, 0, sizeof(dstAns));
-	memcpy(dstAns.rviHeader, "STR_ANS ", sizeof(dstAns.rviHeader));
-	if (gethostname(dstAns.dhcpName, sizeof(dstAns.dhcpName) - 1) != 0) {
-		logg->logError(__FILE__, __LINE__, "gethostname failed");
-		handleException();
-	}
-	// Subvert the defaultGateway field for the port number
-	if (cmdline->port != DEFAULT_PORT) {
-		dstAns.defaultGateway = cmdline->port;
-	}
-	// Subvert the subnetMask field for the protocol version
-	dstAns.subnetMask = PROTOCOL_VERSION;
+	void setup(int port) {
+		mReq = udpPort(UDP_REQ_PORT);
 
-	for (;;) {
+		// Format the answer buffer
+		memset(&mDstAns, 0, sizeof(mDstAns));
+		memcpy(mDstAns.rviHeader, "STR_ANS ", sizeof(mDstAns.rviHeader));
+		if (gethostname(mDstAns.dhcpName, sizeof(mDstAns.dhcpName) - 1) != 0) {
+			logg->logError("gethostname failed");
+			handleException();
+		}
+		// Subvert the defaultGateway field for the port number
+		if (port != DEFAULT_PORT) {
+			mDstAns.defaultGateway = port;
+		}
+		// Subvert the subnetMask field for the protocol version
+		mDstAns.subnetMask = PROTOCOL_VERSION;
+	}
+
+	int getReq() const {
+		return mReq;
+	}
+
+	void handle() {
 		char buf[128];
 		struct sockaddr_in6 sockaddr;
 		socklen_t addrlen;
 		int read;
 		addrlen = sizeof(sockaddr);
-		read = recvfrom(req, &buf, sizeof(buf), 0, (struct sockaddr *)&sockaddr, &addrlen);
+		read = recvfrom(mReq, &buf, sizeof(buf), 0, (struct sockaddr *)&sockaddr, &addrlen);
 		if (read < 0) {
-			logg->logError(__FILE__, __LINE__, "recvfrom failed");
+			logg->logError("recvfrom failed");
 			handleException();
 		} else if ((read == 12) && (memcmp(buf, DST_REQ, sizeof(DST_REQ)) == 0)) {
-			if (sendto(ans, &dstAns, sizeof(dstAns), 0, (struct sockaddr *)&sockaddr, addrlen) != sizeof(dstAns)) {
-				logg->logError(__FILE__, __LINE__, "sendto failed");
+			// Don't care if sendto fails - gatord shouldn't exit because of it and Streamline will retry
+			sendto(mReq, &mDstAns, sizeof(mDstAns), 0, (struct sockaddr *)&sockaddr, addrlen);
+		}
+	}
+
+	void close() {
+		::close(mReq);
+	}
+
+private:
+	int udpPort(int port) {
+		int s;
+		struct sockaddr_in6 sockaddr;
+		int on;
+		int family = AF_INET6;
+
+		s = socket_cloexec(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+		if (s == -1) {
+			family = AF_INET;
+			s = socket_cloexec(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+			if (s == -1) {
+				logg->logError("socket failed");
 				handleException();
 			}
 		}
+
+		on = 1;
+		if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char*)&on, sizeof(on)) != 0) {
+			logg->logError("setsockopt REUSEADDR failed");
+			handleException();
+		}
+
+		// Listen on both IPv4 and IPv6
+		on = 0;
+		if (setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&on, sizeof(on)) != 0) {
+			logg->logMessage("setsockopt IPV6_V6ONLY failed");
+		}
+
+		memset((void*)&sockaddr, 0, sizeof(sockaddr));
+		sockaddr.sin6_family = family;
+		sockaddr.sin6_port = htons(port);
+		sockaddr.sin6_addr = in6addr_any;
+		if (bind(s, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) < 0) {
+			logg->logError("socket failed");
+			handleException();
+		}
+
+		return s;
 	}
-}
+
+	RVIConfigureInfo mDstAns;
+	int mReq;
+};
+
+static UdpListener udpListener;
 
 // retval: -1 = failure; 0 = was already mounted; 1 = successfully mounted
 static int mountGatorFS() {
@@ -212,13 +234,13 @@ static int mountGatorFS() {
 
 static bool init_module (const char * const location) {
 	bool ret(false);
-	const int fd = open(location, O_RDONLY);
+	const int fd = open(location, O_RDONLY | O_CLOEXEC);
 	if (fd >= 0) {
 		struct stat st;
 		if (fstat(fd, &st) == 0) {
 			void * const p = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
 			if (p != MAP_FAILED) {
-				if (syscall(__NR_init_module, p, st.st_size, "") == 0) {
+				if (syscall(__NR_init_module, p, (unsigned long)st.st_size, "") == 0) {
 					ret = true;
 				}
 				munmap(p, st.st_size);
@@ -237,7 +259,7 @@ static bool setupFilesystem(char* module) {
 
 		// if still mounted
 		if (access("/dev/gator/buffer", F_OK) == 0) {
-			logg->logError(__FILE__, __LINE__, "Unable to remove the running gator.ko. Manually remove the module or use the running module by not specifying one on the commandline");
+			logg->logError("Unable to remove the running gator.ko. Manually remove the module or use the running module by not specifying one on the commandline");
 			handleException();
 		}
 	}
@@ -264,8 +286,14 @@ static bool setupFilesystem(char* module) {
 		}
 
 		if (access(location, F_OK) == -1) {
-			// The gator kernel is not already loaded and unable to locate gator.ko
-			return false;
+			if (module == NULL) {
+				// The gator kernel is not already loaded and unable to locate gator.ko in the default location
+				return false;
+			} else {
+				// gator location specified on the command line but it was not found
+				logg->logError("gator module not found at %s", location);
+				handleException();
+			}
 		}
 
 		// Load driver
@@ -275,13 +303,13 @@ static bool setupFilesystem(char* module) {
 			snprintf(command, sizeof(command), "insmod %s >/dev/null 2>&1", location);
 			if (system(command) != 0) {
 				logg->logMessage("Unable to load gator.ko driver with command: %s", command);
-				logg->logError(__FILE__, __LINE__, "Unable to load (insmod) gator.ko driver:\n  >>> gator.ko must be built against the current kernel version & configuration\n  >>> See dmesg for more details");
+				logg->logError("Unable to load (insmod) gator.ko driver:\n  >>> gator.ko must be built against the current kernel version & configuration\n  >>> See dmesg for more details");
 				handleException();
 			}
 		}
 
 		if (mountGatorFS() == -1) {
-			logg->logError(__FILE__, __LINE__, "Unable to mount the gator filesystem needed for profiling.");
+			logg->logError("Unable to mount the gator filesystem needed for profiling.");
 			handleException();
 		}
 	}
@@ -305,10 +333,26 @@ static int shutdownFilesystem() {
 	return 0; // success
 }
 
+static const char OPTSTRING[] = "hvVudap:s:c:e:E:m:o:";
+
+static bool hasDebugFlag(int argc, char** argv) {
+	int c;
+
+	optind = 1;
+	while ((c = getopt(argc, argv, OPTSTRING)) != -1) {
+		if (c == 'd') {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 static struct cmdline_t parseCommandLine(int argc, char** argv) {
 	struct cmdline_t cmdline;
 	cmdline.port = DEFAULT_PORT;
 	cmdline.module = NULL;
+	cmdline.update = false;
 	char version_string[256]; // arbitrary length to hold the version information
 	int c;
 
@@ -319,19 +363,30 @@ static struct cmdline_t parseCommandLine(int argc, char** argv) {
 		snprintf(version_string, sizeof(version_string), "Streamline gatord development version %d", PROTOCOL_VERSION);
 	}
 
-	while ((c = getopt(argc, argv, "hvp:s:c:e:m:o:")) != -1) {
-		switch(c) {
+	optind = 1;
+	while ((c = getopt(argc, argv, OPTSTRING)) != -1) {
+		switch (c) {
 			case 'c':
 				gSessionData->mConfigurationXMLPath = optarg;
 				break;
+			case 'd':
+				// Already handled
+				break;
 			case 'e':
 				gSessionData->mEventsXMLPath = optarg;
+				break;
+			case 'E':
+				gSessionData->mEventsXMLAppend = optarg;
 				break;
 			case 'm':
 				cmdline.module = optarg;
 				break;
 			case 'p':
 				cmdline.port = strtol(optarg, NULL, 10);
+				if ((cmdline.port == 8082) || (cmdline.port == 8083)) {
+					logg->logError("Gator can't use port %i, as it already uses ports 8082 and 8083 for annotations. Please select a different port.", cmdline.port);
+					handleException();
+				}
 				break;
 			case 's':
 				gSessionData->mSessionXMLPath = optarg;
@@ -339,23 +394,36 @@ static struct cmdline_t parseCommandLine(int argc, char** argv) {
 			case 'o':
 				gSessionData->mTargetPath = optarg;
 				break;
+			case 'u':
+				cmdline.update = true;
+				break;
+			case 'a':
+				gSessionData->mAllowCommands = true;
+				break;
 			case 'h':
 			case '?':
-				logg->logError(__FILE__, __LINE__,
+				logg->logError(
 					"%s. All parameters are optional:\n"
-					"-c config_xml   path and filename of the configuration.xml to use\n"
-					"-e events_xml   path and filename of the events.xml to use\n"
+					"-c config_xml   path and filename of the configuration XML to use\n"
+					"-e events_xml   path and filename of the events XML to use\n"
+					"-E events_xml   path and filename of events XML to append\n"
 					"-h              this help page\n"
 					"-m module       path and filename of gator.ko\n"
 					"-p port_number  port upon which the server listens; default is 8080\n"
-					"-s session_xml  path and filename of a session xml used for local capture\n"
+					"-s session_xml  path and filename of a session.xml used for local capture\n"
 					"-o apc_dir      path and name of the output for a local capture\n"
 					"-v              version information\n"
+					"-d              enable debug messages\n"
+					"-a              allow the user to issue a command from Streamline"
 					, version_string);
 				handleException();
 				break;
 			case 'v':
-				logg->logError(__FILE__, __LINE__, version_string);
+				logg->logError("%s", version_string);
+				handleException();
+				break;
+			case 'V':
+				logg->logError("%s\nSRC_MD5: %s", version_string, gSrcMd5);
 				handleException();
 				break;
 		}
@@ -363,21 +431,63 @@ static struct cmdline_t parseCommandLine(int argc, char** argv) {
 
 	// Error checking
 	if (cmdline.port != DEFAULT_PORT && gSessionData->mSessionXMLPath != NULL) {
-		logg->logError(__FILE__, __LINE__, "Only a port or a session xml can be specified, not both");
+		logg->logError("Only a port or a session xml can be specified, not both");
 		handleException();
 	}
 
 	if (gSessionData->mTargetPath != NULL && gSessionData->mSessionXMLPath == NULL) {
-		logg->logError(__FILE__, __LINE__, "Missing -s command line option required for a local capture.");
+		logg->logError("Missing -s command line option required for a local capture.");
 		handleException();
 	}
 
 	if (optind < argc) {
-		logg->logError(__FILE__, __LINE__, "Unknown argument: %s. Use '-h' for help.", argv[optind]);
+		logg->logError("Unknown argument: %s. Use '-h' for help.", argv[optind]);
 		handleException();
 	}
 
 	return cmdline;
+}
+
+static AnnotateListener annotateListener;
+
+static void handleClient() {
+	OlySocket client(sock->acceptConnection());
+
+	int pid = fork();
+	if (pid < 0) {
+		// Error
+		logg->logError("Fork process failed. Please power cycle the target device if this error persists.");
+	} else if (pid == 0) {
+		// Child
+		sock->closeServerSocket();
+		udpListener.close();
+		monitor.close();
+		annotateListener.close();
+		child = new Child(&client, numSessions + 1);
+		child->run();
+		delete child;
+		exit(0);
+	} else {
+		// Parent
+		client.closeSocket();
+
+		pthread_mutex_lock(&numSessions_mutex);
+		numSessions++;
+		pthread_mutex_unlock(&numSessions_mutex);
+
+		// Maximum number of connections is 2
+		int wait = 0;
+		while (numSessions > 1) {
+			// Throttle until one of the children exits before continuing to accept another socket connection
+			logg->logMessage("%d sessions active!", numSessions);
+			if (wait++ >= 10) { // Wait no more than 10 seconds
+				// Kill last created child
+				kill(pid, SIGALRM);
+				break;
+			}
+			sleep(1);
+		}
+	}
 }
 
 // Gator data flow: collector -> collector fifo -> sender
@@ -386,12 +496,15 @@ int main(int argc, char** argv) {
 	//   e.g. it may not be the group leader when launched as 'sudo gatord'
 	setsid();
 
-	logg = new Logging(DEBUG);  // Set up global thread-safe logging
-	gSessionData = new SessionData(); // Global data class
-	util = new OlyUtility();	// Set up global utility class
+  // Set up global thread-safe logging
+	logg = new Logging(hasDebugFlag(argc, argv));
+	// Global data class
+	gSessionData = new SessionData();
+	// Set up global utility class
+	util = new OlyUtility();
 
 	// Initialize drivers
-	new KMod();
+	new CCNDriver();
 
 	prctl(PR_SET_NAME, (unsigned long)&"gatord-main", 0, 0, 0);
 	pthread_mutex_init(&numSessions_mutex, NULL);
@@ -408,28 +521,42 @@ int main(int argc, char** argv) {
 	// Parse the command line parameters
 	struct cmdline_t cmdline = parseCommandLine(argc, argv);
 
+	if (cmdline.update) {
+		update(argv[0]);
+		cmdline.update = false;
+		gSessionData->mAllowCommands = true;
+	}
+
 	// Verify root permissions
 	uid_t euid = geteuid();
 	if (euid) {
-		logg->logError(__FILE__, __LINE__, "gatord must be launched with root privileges");
+		logg->logError("gatord must be launched with root privileges");
 		handleException();
 	}
 
 	// Call before setting up the SIGCHLD handler, as system() spawns child processes
 	if (!setupFilesystem(cmdline.module)) {
-		logg->logMessage("Unable to setup gatorfs, trying perf");
+		logg->logMessage("Unable to set up gatorfs, trying perf");
 		if (!gSessionData->perf.setup()) {
-			logg->logError(__FILE__, __LINE__,
-										 "Unable to locate gator.ko driver:\n"
-										 "  >>> gator.ko should be co-located with gatord in the same directory\n"
-										 "  >>> OR insmod gator.ko prior to launching gatord\n"
-										 "  >>> OR specify the location of gator.ko on the command line\n"
-										 "  >>> OR run Linux 3.12 or later with perf support to collect data via userspace only");
+			logg->logError(
+				       "Unable to locate gator.ko driver:\n"
+				       "  >>> gator.ko should be co-located with gatord in the same directory\n"
+				       "  >>> OR insmod gator.ko prior to launching gatord\n"
+				       "  >>> OR specify the location of gator.ko on the command line\n"
+				       "  >>> OR run Linux 3.4 or later with perf (CONFIG_PERF_EVENTS and CONFIG_HW_PERF_EVENTS) and tracing (CONFIG_TRACING and CONFIG_CONTEXT_SWITCH_TRACER) support to collect data via userspace only");
 			handleException();
 		}
 	}
 
-	gSessionData->hwmon.setup();
+	{
+		EventsXML eventsXML;
+		mxml_node_t *xml = eventsXML.getTree();
+		// Initialize all drivers
+		for (Driver *driver = Driver::getHead(); driver != NULL; driver = driver->getNext()) {
+			driver->readEvents(xml);
+		}
+		mxmlDelete(xml);
+	}
 
 	// Handle child exit codes
 	signal(SIGCHLD, child_exit);
@@ -444,47 +571,49 @@ int main(int argc, char** argv) {
 		child->run();
 		delete child;
 	} else {
-		pthread_t answerThreadID;
-		if (pthread_create(&answerThreadID, NULL, answerThread, &cmdline)) {
-			logg->logError(__FILE__, __LINE__, "Failed to create answer thread");
+		annotateListener.setup();
+		int pipefd[2];
+		if (pipe_cloexec(pipefd) != 0) {
+			logg->logError("Unable to set up annotate pipe");
 			handleException();
 		}
+		gSessionData->mAnnotateStart = pipefd[1];
 		sock = new OlyServerSocket(cmdline.port);
+		udpListener.setup(cmdline.port);
+		if (!monitor.init() ||
+				!monitor.add(sock->getFd()) ||
+				!monitor.add(udpListener.getReq()) ||
+				!monitor.add(annotateListener.getSockFd()) ||
+				!monitor.add(annotateListener.getUdsFd()) ||
+				!monitor.add(pipefd[0]) ||
+				false) {
+			logg->logError("Monitor setup failed");
+			handleException();
+		}
 		// Forever loop, can be exited via a signal or exception
 		while (1) {
+			struct epoll_event events[2];
 			logg->logMessage("Waiting on connection...");
-			OlySocket client(sock->acceptConnection());
-
-			int pid = fork();
-			if (pid < 0) {
-				// Error
-				logg->logError(__FILE__, __LINE__, "Fork process failed. Please power cycle the target device if this error persists.");
-			} else if (pid == 0) {
-				// Child
-				sock->closeServerSocket();
-				child = new Child(&client, numSessions + 1);
-				child->run();
-				delete child;
-				exit(0);
-			} else {
-				// Parent
-				client.closeSocket();
-
-				pthread_mutex_lock(&numSessions_mutex);
-				numSessions++;
-				pthread_mutex_unlock(&numSessions_mutex);
-
-				// Maximum number of connections is 2
-				int wait = 0;
-				while (numSessions > 1) {
-					// Throttle until one of the children exits before continuing to accept another socket connection
-					logg->logMessage("%d sessions active!", numSessions);
-					if (wait++ >= 10) { // Wait no more than 10 seconds
-						// Kill last created child
-						kill(pid, SIGALRM);
-						break;
+			int ready = monitor.wait(events, ARRAY_LENGTH(events), -1);
+			if (ready < 0) {
+				logg->logError("Monitor::wait failed");
+				handleException();
+			}
+			for (int i = 0; i < ready; ++i) {
+				if (events[i].data.fd == sock->getFd()) {
+					handleClient();
+				} else if (events[i].data.fd == udpListener.getReq()) {
+					udpListener.handle();
+				} else if (events[i].data.fd == annotateListener.getSockFd()) {
+					annotateListener.handleSock();
+				} else if (events[i].data.fd == annotateListener.getUdsFd()) {
+					annotateListener.handleUds();
+				} else if (events[i].data.fd == pipefd[0]) {
+					uint64_t val;
+					if (read(pipefd[0], &val, sizeof(val)) != sizeof(val)) {
+						logg->logMessage("Reading annotate pipe failed");
 					}
-					sleep(1);
+					annotateListener.signal();
 				}
 			}
 		}
