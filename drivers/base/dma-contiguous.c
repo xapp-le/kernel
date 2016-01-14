@@ -57,7 +57,7 @@ struct cma *dma_contiguous_default_area;
  * Users, who want to set the size of global CMA area for their system
  * should use cma= kernel parameter.
  */
-static const phys_addr_t size_bytes = CMA_SIZE_MBYTES * SZ_1M;
+static phys_addr_t size_bytes = CMA_SIZE_MBYTES * SZ_1M;
 static phys_addr_t size_cmdline = -1;
 
 static int __init early_cma(char *p)
@@ -94,6 +94,12 @@ static inline __maybe_unused phys_addr_t cma_early_percent_memory(void)
 }
 
 #endif
+
+void __init dma_contiguous_set_global_reserve_size(phys_addr_t new_size)
+{
+	if (new_size > size_bytes)
+		size_bytes = new_size;
+}
 
 /**
  * dma_contiguous_reserve() - reserve area(s) for contiguous memory handling
