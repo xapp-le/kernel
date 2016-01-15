@@ -543,8 +543,9 @@ typedef void (*finish_suspend_t)(ulong cpu_type, ulong pmic_busio, ulong pmic_ad
 //        | ((0x2<<5) | (0x3<<7) | (0x3<<11) | (0x3<<17)), MFP_CTL2);
 //}
 
+#ifdef _CALC_DDR_FIX
 #include <asm/sections.h>
-
+#endif
 //#define STATS_CALC_CHECKSUM_TIME
 
 #define K_TEXT_CSUM_INFO_START_ADDR 0xC0002800
@@ -614,6 +615,7 @@ void c_restore_ddr_train_area(void)
 	flush_cache_all();
 }
 
+#ifdef _CALC_DDR_FIX
 int c_calc_ddr_checksum(void)
 {
 #ifdef STATS_CALC_CHECKSUM_TIME
@@ -668,6 +670,7 @@ int c_check_ddr_checksum(void)
     
 	return 0;
 }
+#endif
 
 static int owl_cpu_suspend(unsigned long cpu_state)
 {
@@ -685,7 +688,9 @@ static int owl_cpu_suspend(unsigned long cpu_state)
 	ulong pmic_bus_iobase;
 
 //    switch_jtag();
+#ifdef _CALC_DDR_FIX
 	c_check_ddr_checksum();
+#endif
 	c_save_ddr_train_area();
 	
 	cpu_type = cpu_package();
@@ -890,7 +895,9 @@ static int owl_pm_enter(suspend_state_t state)
 	owl_cpu_clk_restore();
 	
 	c_restore_ddr_train_area();
+#ifdef _CALC_DDR_FIX
 	c_check_ddr_checksum();
+#endif
 
 	owl_powergate_resume();
 
@@ -1005,7 +1012,9 @@ int __init owl_pm_init(void)
 {
 	printk("[PM] %s() %d\n", __func__, __LINE__);
 	
+#ifdef _CALC_DDR_FIX
 	c_calc_ddr_checksum();
+#endif
 	suspend_set_ops(&owl_pm_ops);
 	pm_power_off = owl_pm_halt;
 	arm_pm_restart = owl_pm_restart;
