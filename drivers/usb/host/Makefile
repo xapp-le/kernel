@@ -3,6 +3,7 @@
 #
 
 ccflags-$(CONFIG_USB_DEBUG) := -DDEBUG
+ccflags-y := -Idrivers/usb/host
 
 isp1760-y := isp1760-hcd.o isp1760-if.o
 
