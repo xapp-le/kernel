@@ -1,0 +1,12 @@
+-- A NOTICE about a MAJOR CHANGE on the XAPP-LE REPOSITORY --
+
+This repository (i.e. the original xapp-le master branch) doesn't contain the full git commit logs from the upstream repository (specifically for the kernel and u-boot. 
+
+As a result, a new repository has been "re-created" to include the complete git history. The new repository currently (at the time this NOTICE was added) exists in another branch, 'master-new'. 
+
+The master-new repository will REPLACE the original master branch ** before 2016/02/01 **. 
+
+For anyone developers who has cloned (or repo sync'ed) the original master branch, please be prepared for the change. A suggestion will be to commit the modified sources to master-new instead before the above date. That way, the commits will be carried to the newly replaced master branch.
+
+PS. A branch 'master-orig' has been created to keep the contents of this original master.
+
