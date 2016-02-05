@@ -73,6 +73,9 @@
 #define MAX_DEVICES 1
 #define MII_TIME_OUT 100
 
+#ifdef DETECT_Rx_Timeout
+#define EC_RX_TIMEOUT  200 
+#endif
 static struct delayed_work resume_work;
 static struct workqueue_struct *resume_queue = NULL;
 
@@ -1433,6 +1436,46 @@ static int _deinit_hardware(ec_priv_t *ecp){
 	return 0;
 }
 
+#ifdef DETECT_Rx_Timeout
+//static void hardware_reset_do_work(struct net_device *dev);
+
+static void detect_Rxtimeout_timer_func(unsigned long data)
+{
+	ec_priv_t *ecp = (ec_priv_t *)data;
+	volatile ethregs_t *hw_regs = ecp->hwrp;
+	unsigned long flags;
+	if((hw_regs->er_flowctrl & EC_FLOWCTRL_PRS)&&((hw_regs->er_status & EC_STATUS_RSM)== EC_RX_run_dsp) )
+	{
+		printk(KERN_DEBUG"%s \n",__func__);//EC_INFO("\n");
+		spin_lock_irqsave(&ecp->lock, flags);
+  	 queue_work(ecp->ethernet_work_queue,&ecp->hardware_reset_work);
+//	hardware_reset_do_work(ecp->netdev);
+    	spin_unlock_irqrestore(&ecp->lock, flags);
+	}
+}
+
+static void init_Rxtimeout_timer(ec_priv_t *ecp)
+{
+	printk(KERN_DEBUG"%s \n",__func__);//EC_INFO("\n");
+    init_timer(&ecp->Rxtimeout_timer);
+    ecp->Rxtimeout_timer.data = (unsigned long)ecp;
+    ecp->Rxtimeout_timer.function = detect_Rxtimeout_timer_func;
+}
+
+static void start_Rxtimeout_timer(ec_priv_t *ecp,const unsigned ms)
+{
+    mod_timer(&ecp->Rxtimeout_timer, jiffies + msecs_to_jiffies(ms));
+}
+
+static void stop_Rxtimeout_timer(ec_priv_t *ecp)
+{
+	printk(KERN_DEBUG"%s \n",__func__);//EC_INFO("\n");
+    if (timer_pending(&ecp->Rxtimeout_timer))
+        del_timer_sync(&ecp->Rxtimeout_timer);
+}
+
+#endif
+
 #ifdef DETECT_POWER_SAVE
 static void detect_power_save_timer_func(unsigned long data);
 
@@ -2089,10 +2132,10 @@ static irqreturn_t ec_netmac_isr(int irq, void *cookie)
     unsigned long intr_bits = 0;
 //    unsigned long interested = 0;
 	struct net_device *dev = ecp->netdev;
-    static unsigned long tx_cnt,rx_cnt;
-	unsigned long mac_status;
+//    static unsigned long tx_cnt,rx_cnt;
+//	unsigned long mac_status;
     int ru_cnt = 0;
-     int i = 0;
+//     int i = 0;
     intr_bits = EC_STATUS_NIS | EC_STATUS_AIS;
 
     disable_irq_nosync(ecp->mac_irq);
@@ -2117,21 +2160,24 @@ static irqreturn_t ec_netmac_isr(int irq, void *cookie)
 
         if (status & (EC_STATUS_TI | EC_STATUS_ETI)) {
             subisr_enet_tx(ecp);
-			tx_cnt = 0;
-			mac_status = status & EC_STATUS_RSM;
-			if((mac_status == EC_RX_fetch_dsp)||(mac_status ==EC_RX_run_dsp)||(mac_status ==EC_RX_close_dsp) )
-				rx_cnt++;
+//			tx_cnt = 0;
+//			mac_status = status & EC_STATUS_RSM;
+//			if((mac_status == EC_RX_fetch_dsp)||(mac_status ==EC_RX_run_dsp)||(mac_status ==EC_RX_close_dsp) )
+//				rx_cnt++;
         }
 
         /* RI & RU may come at same time, if RI handled, then RU needn't handle.
          * If RU comes & RI not comes, then we must handle RU interrupt. */
         if (status & EC_STATUS_RI) {
 		    //printk("%s %d  RX INTERRUPT\n",__FUNCTION__,__LINE__);
-            subisr_enet_rx(ecp);
-			rx_cnt = 0;
-			mac_status = status & EC_STATUS_TSM;
-			if((mac_status == EC_STATUS_TSM)||(mac_status == EC_TX_run_dsp))
-				tx_cnt++;
+#ifdef DETECT_Rx_Timeout
+			start_Rxtimeout_timer(ecp,EC_RX_TIMEOUT);
+#endif
+			subisr_enet_rx(ecp);
+//			rx_cnt = 0;
+//			mac_status = status & EC_STATUS_TSM;
+//			if((mac_status == EC_STATUS_TSM)||(mac_status == EC_TX_run_dsp))
+//				tx_cnt++;
         } else if (status & EC_STATUS_RU) {
             ru_cnt++;
             /* set RPD could help if rx suspended & bd available */
@@ -2154,7 +2200,7 @@ static irqreturn_t ec_netmac_isr(int irq, void *cookie)
         }
     }
     enable_irq(ecp->mac_irq);
-    	 
+#if 0    	 
 	if((tx_cnt>10)||(rx_cnt>10)){
 		if(tx_cnt>10)
 			printk(KERN_ERR"TX ERROR status: 0x%08x\n", (u32)status);
@@ -2165,9 +2211,9 @@ static irqreturn_t ec_netmac_isr(int irq, void *cookie)
 		rx_cnt = 0;
 		tx_cnt = 0;
 		netif_stop_queue(dev);
-		queue_work(ecp->ethernet_work_queue,&ecp->hardware_reset_work);
+	//	queue_work(ecp->ethernet_work_queue,&ecp->hardware_reset_work);
 	}
-	
+#endif	
     return (IRQ_HANDLED);
 }
 
@@ -2299,6 +2345,9 @@ static int ec_netdev_open(struct net_device *dev)
     init_power_save_timer(ecp);
     start_power_save_timer(ecp, 4000);
 #endif
+#ifdef DETECT_Rx_Timeout
+	init_Rxtimeout_timer(ecp);
+#endif
 
     netif_start_queue(dev);
     return (0);
@@ -2332,6 +2381,9 @@ static int ec_netdev_close(struct net_device *dev)
 
 #ifdef DETECT_POWER_SAVE
     stop_power_save_timer(ecp);
+#endif
+#ifdef DETECT_Rx_Timeout
+	stop_Rxtimeout_timer(ecp);
 #endif
 
 #if 0
@@ -2838,7 +2890,7 @@ static void hardware_reset_do_work(struct work_struct *work)
 		}		
 #endif
 
-	ethernet_clock_disable();
+//	ethernet_clock_disable();
 
 	if (ecp->tx_bd_base)
 		dma_free_coherent(NULL, sizeof(ec_bd_t) * TX_RING_SIZE,
@@ -2864,6 +2916,7 @@ static void hardware_reset_do_work(struct work_struct *work)
         INFO_RED("error : prepare bds failed\n");
         return;
     }
+#if 0
     if(phy_reinit){
     	phy_reinit=false;
     	if (_init_hardware(ecp,FLAG_CLOCK_RESET,FLAG_PHY_RESET)) {
@@ -2876,8 +2929,11 @@ static void hardware_reset_do_work(struct work_struct *work)
 			return;
     	}    
     }
+#endif
+	mac_init(ecp);
+	set_mac_addr(ecp);
 
-    memcpy(dev->dev_addr, ecp->mac_addr, ETH_MAC_LEN);
+    	memcpy(dev->dev_addr, ecp->mac_addr, ETH_MAC_LEN);
 
     parse_interface_flags(ecp, dev->flags);
 

@@ -27,6 +27,7 @@
 #include <linux/timer.h>
 #endif
 
+#define DETECT_Rx_Timeout
 //#define ETH_TEST_MODE
 
 #define MULTICAST_LIST_LEN 14
@@ -177,6 +178,9 @@ typedef struct dev_priv {
     struct timer_list detect_timer;
     struct work_struct power_save_work;
 #endif
+#ifdef DETECT_Rx_Timeout
+	struct timer_list Rxtimeout_timer;
+#endif 
 	struct work_struct hardware_reset_work;
 	struct workqueue_struct *ethernet_work_queue;
 #ifdef CONFIG_POLL_PHY_STATE
