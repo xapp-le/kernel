@@ -1096,7 +1096,7 @@
 		hotplugable = <0>;
 		bootable = <1>; 
 		bootrotate = <0>;   
-		default_resolution = "auto";
+		default_resolution = "1920x1080p-60";
 	};
 
 	cvbs:cvbs@b02b0000{  
@@ -1109,7 +1109,11 @@
 	
 	framebuffer {
 		compatible = "actions,framebuffer";  
+		status = "okay";
 		def_display  = "hdmi";
+		xres = <0x00000780>;
+		yres = <0x00000438>;
+		bpp = <0x00000004>;
 	};
 
 	pwm: pwm@b01b0050 {
