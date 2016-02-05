@@ -984,7 +984,7 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&mmc2_state_default>;
 		card_type = "emmc";  /* only: "memory", "wifi", or "emmc" */
-		status = "disable";
+		status = "okay";
 	};
 	
 	usb@b02b8000 {
