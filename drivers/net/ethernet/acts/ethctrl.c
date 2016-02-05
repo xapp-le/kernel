@@ -74,7 +74,7 @@
 #define MII_TIME_OUT 100
 
 #ifdef DETECT_Rx_Timeout
-#define EC_RX_TIMEOUT  200 
+#define EC_RX_TIMEOUT  200
 #endif
 static struct delayed_work resume_work;
 static struct workqueue_struct *resume_queue = NULL;
@@ -1437,8 +1437,6 @@ static int _deinit_hardware(ec_priv_t *ecp){
 }
 
 #ifdef DETECT_Rx_Timeout
-//static void hardware_reset_do_work(struct net_device *dev);
-
 static void detect_Rxtimeout_timer_func(unsigned long data)
 {
 	ec_priv_t *ecp = (ec_priv_t *)data;
@@ -1448,32 +1446,30 @@ static void detect_Rxtimeout_timer_func(unsigned long data)
 	{
 		printk(KERN_DEBUG"%s \n",__func__);//EC_INFO("\n");
 		spin_lock_irqsave(&ecp->lock, flags);
-  	 queue_work(ecp->ethernet_work_queue,&ecp->hardware_reset_work);
-//	hardware_reset_do_work(ecp->netdev);
-    	spin_unlock_irqrestore(&ecp->lock, flags);
+		queue_work(ecp->ethernet_work_queue,&ecp->hardware_reset_work);
+		spin_unlock_irqrestore(&ecp->lock, flags);
 	}
 }
 
 static void init_Rxtimeout_timer(ec_priv_t *ecp)
 {
 	printk(KERN_DEBUG"%s \n",__func__);//EC_INFO("\n");
-    init_timer(&ecp->Rxtimeout_timer);
-    ecp->Rxtimeout_timer.data = (unsigned long)ecp;
-    ecp->Rxtimeout_timer.function = detect_Rxtimeout_timer_func;
+	init_timer(&ecp->Rxtimeout_timer);
+	ecp->Rxtimeout_timer.data = (unsigned long)ecp;
+	ecp->Rxtimeout_timer.function = detect_Rxtimeout_timer_func;
 }
 
 static void start_Rxtimeout_timer(ec_priv_t *ecp,const unsigned ms)
 {
-    mod_timer(&ecp->Rxtimeout_timer, jiffies + msecs_to_jiffies(ms));
+	mod_timer(&ecp->Rxtimeout_timer, jiffies + msecs_to_jiffies(ms));
 }
 
 static void stop_Rxtimeout_timer(ec_priv_t *ecp)
 {
 	printk(KERN_DEBUG"%s \n",__func__);//EC_INFO("\n");
-    if (timer_pending(&ecp->Rxtimeout_timer))
-        del_timer_sync(&ecp->Rxtimeout_timer);
+	if (timer_pending(&ecp->Rxtimeout_timer))
+		del_timer_sync(&ecp->Rxtimeout_timer);
 }
-
 #endif
 
 #ifdef DETECT_POWER_SAVE
@@ -2130,12 +2126,8 @@ static irqreturn_t ec_netmac_isr(int irq, void *cookie)
     volatile ethregs_t *hw_regs = ecp->hwrp;
     unsigned long status = 0;
     unsigned long intr_bits = 0;
-//    unsigned long interested = 0;
 	struct net_device *dev = ecp->netdev;
-//    static unsigned long tx_cnt,rx_cnt;
-//	unsigned long mac_status;
     int ru_cnt = 0;
-//     int i = 0;
     intr_bits = EC_STATUS_NIS | EC_STATUS_AIS;
 
     disable_irq_nosync(ecp->mac_irq);
@@ -2200,7 +2192,7 @@ static irqreturn_t ec_netmac_isr(int irq, void *cookie)
         }
     }
     enable_irq(ecp->mac_irq);
-#if 0    	 
+#if 0
 	if((tx_cnt>10)||(rx_cnt>10)){
 		if(tx_cnt>10)
 			printk(KERN_ERR"TX ERROR status: 0x%08x\n", (u32)status);
@@ -2213,7 +2205,7 @@ static irqreturn_t ec_netmac_isr(int irq, void *cookie)
 		netif_stop_queue(dev);
 	//	queue_work(ecp->ethernet_work_queue,&ecp->hardware_reset_work);
 	}
-#endif	
+#endif
     return (IRQ_HANDLED);
 }
 
@@ -2876,7 +2868,7 @@ static void hardware_reset_do_work(struct work_struct *work)
 	cancel_delayed_work(&ecp->phy_detect_work);
 	flush_workqueue(ecp->phy_detect_queue);
 #else
-    disable_irq(ecp->phy_irq);
+	disable_irq(ecp->phy_irq);
 #endif
 	//if tx timeout 只复位mac，不复位phy, 否则都做reset
 #if 0   //timeout 总是不reset phy
@@ -2933,7 +2925,7 @@ static void hardware_reset_do_work(struct work_struct *work)
 	mac_init(ecp);
 	set_mac_addr(ecp);
 
-    	memcpy(dev->dev_addr, ecp->mac_addr, ETH_MAC_LEN);
+	memcpy(dev->dev_addr, ecp->mac_addr, ETH_MAC_LEN);
 
     parse_interface_flags(ecp, dev->flags);
 

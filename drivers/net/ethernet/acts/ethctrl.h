@@ -180,7 +180,7 @@ typedef struct dev_priv {
 #endif
 #ifdef DETECT_Rx_Timeout
 	struct timer_list Rxtimeout_timer;
-#endif 
+#endif
 	struct work_struct hardware_reset_work;
 	struct workqueue_struct *ethernet_work_queue;
 #ifdef CONFIG_POLL_PHY_STATE
