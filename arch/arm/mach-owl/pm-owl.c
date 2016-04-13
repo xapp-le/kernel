@@ -773,7 +773,9 @@ int owl_pmic_setup_aux_wakeup_src(uint wakeup_src, uint on)
 }
 EXPORT_SYMBOL_GPL(owl_pmic_setup_aux_wakeup_src);
 
+#if defined(CONFIG_ARM_CPU_SUSPEND) && defined(CONFIG_PM)
 PM_SYMBOL(owl_cpu_resume);
+#endif
 
 static void owl_set_wakeup_source(void)
 {

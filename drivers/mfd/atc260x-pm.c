@@ -622,6 +622,7 @@ static int _atc260x_pm_enter_suspend(void)
 		reg_sysctl3_val |= PMU_SYS_CTL3_EN_S3;
 	}
 
+#if defined(CONFIG_ARM_CPU_SUSPEND) && defined(CONFIG_PM)
 	/* save resume address to pstore */
 	p_cpu_resume = symbol_get(owl_cpu_resume);
 	if (!p_cpu_resume || IS_ERR(p_cpu_resume))
@@ -633,6 +634,7 @@ static int _atc260x_pm_enter_suspend(void)
 	dev_info(atc260x_pm->dev, "%s() owl_cpu_resume @ 0x%lx (phy 0x%lx)\n",
 		__func__, (ulong)p_cpu_resume, (ulong)resume_phy_address);
 		
+#endif
 	if(s2_mode)
 		resume_phy_address |= (1UL << (sizeof(resume_phy_address)*8-1)); /* set highest bit */
 	

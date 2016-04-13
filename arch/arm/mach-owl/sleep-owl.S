@@ -414,10 +414,12 @@ ENTRY(print_char)
 24:	mov	pc, lr
 ENDPROC(print_char)
 
+#if defined(CONFIG_ARM_CPU_SUSPEND) && defined(CONFIG_PM)
 ENTRY(owl_cpu_resume)
 	/* goto cpu_resume */
 	b       cpu_resume
 ENDPROC(owl_cpu_resume)
+#endif
 
 ENTRY(leopard_flush_dcache_all)
 	dmb
