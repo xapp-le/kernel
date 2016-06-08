@@ -20,5 +20,5 @@ parts:
             - squashfs
         kernel-image-target: zImage
         kernel-device-trees:
-            - actduino_bubble_gum_sdboot
+            - actduino_bubble_gum_sdboot_linux
         build-packages: [bc, kmod, cpio]
