@@ -11,7 +11,7 @@ parts:
         source: .
         source-branch: Ubuntu-Snappy-Core
         source-type: git
-        kdefconfig: [snappy-actduino_bubble_gum_linux_defconfig, snappy/generic.config, snappy/security.config, snappy/systemd.config, snappy/snappy.config, snappy/containers.config]
+        kdefconfig: [actduino_bubble_gum_linux_defconfig, snappy/generic.config, snappy/security.config, snappy/systemd.config, snappy/snappy.config, snappy/containers.config]
         kconfigs:
             - CONFIG_LOCALVERSION="-roseapple"
             - CONFIG_DEBUG_INFO=n
